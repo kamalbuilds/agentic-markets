@@ -160,9 +160,8 @@ function JsonViewer({ data, maxHeight = "300px" }: { data: unknown; maxHeight?: 
   return (
     <div className="relative">
       <pre
-        className={`overflow-auto rounded-lg border border-zinc-800 bg-zinc-950/80 p-3 text-[11px] text-zinc-300 font-mono ${
-          !expanded && isLong ? "max-h-[200px]" : ""
-        }`}
+        className={`overflow-auto rounded-lg border border-zinc-800 bg-zinc-950/80 p-3 text-[11px] text-zinc-300 font-mono ${!expanded && isLong ? "max-h-[200px]" : ""
+          }`}
         style={expanded ? { maxHeight } : undefined}
       >
         {json}
@@ -369,15 +368,14 @@ function DecisionPanel() {
                 </div>
                 <div className="h-2 rounded-full bg-zinc-800 overflow-hidden">
                   <div
-                    className={`h-full rounded-full transition-all ${
-                      d.riskScore <= 25
+                    className={`h-full rounded-full transition-all ${d.riskScore <= 25
                         ? "bg-green-500"
                         : d.riskScore <= 50
-                        ? "bg-yellow-500"
-                        : d.riskScore <= 75
-                        ? "bg-orange-500"
-                        : "bg-red-500"
-                    }`}
+                          ? "bg-yellow-500"
+                          : d.riskScore <= 75
+                            ? "bg-orange-500"
+                            : "bg-red-500"
+                      }`}
                     style={{ width: `${d.riskScore}%` }}
                   />
                 </div>
@@ -740,11 +738,10 @@ function INFTPanel() {
             <button
               key={value}
               onClick={() => setAction(value)}
-              className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
-                action === value
+              className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${action === value
                   ? "border-purple-500/50 bg-purple-500/10 text-purple-400"
                   : "border-zinc-800 bg-zinc-950/50 text-zinc-400 hover:border-zinc-700 hover:text-zinc-300"
-              }`}
+                }`}
             >
               <Icon className="size-3.5" />
               {label}
@@ -842,12 +839,12 @@ function INFTPanel() {
           {loading
             ? "Processing..."
             : action === "mint"
-            ? "Mint Agent as iNFT"
-            : action === "authorizeUsage"
-            ? "Authorize Usage"
-            : action === "transfer"
-            ? "Transfer iNFT"
-            : "List All iNFTs"}
+              ? "Mint Agent as iNFT"
+              : action === "authorizeUsage"
+                ? "Authorize Usage"
+                : action === "transfer"
+                  ? "Transfer iNFT"
+                  : "List All iNFTs"}
         </Button>
 
         {/* Results */}
@@ -864,10 +861,10 @@ function INFTPanel() {
                     {action === "mint"
                       ? `iNFT #${result.tokenId} Minted`
                       : action === "authorizeUsage"
-                      ? "Usage Authorized"
-                      : action === "transfer"
-                      ? "Transfer Complete"
-                      : `${(result as { totalMinted?: number }).totalMinted || 0} iNFTs Found`}
+                        ? "Usage Authorized"
+                        : action === "transfer"
+                          ? "Transfer Complete"
+                          : `${(result as { totalMinted?: number }).totalMinted || 0} iNFTs Found`}
                   </span>
                   <Badge variant="outline" className="ml-auto border-zinc-700 text-[10px] text-zinc-500">
                     ERC-7857
@@ -919,9 +916,6 @@ export default function OGPage() {
             <Zap className="size-4" />
             0G Labs Integration
           </div>
-          <Badge variant="outline" className="border-green-500/30 text-green-400 text-xs">
-            $25K Bounty (3 Tracks)
-          </Badge>
         </div>
         <h1 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
           0G AI <span className="text-indigo-400">Integration Suite</span>

@@ -13,7 +13,7 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "AgentMarket - AI Agent Commerce Platform",
   description:
-    "Autonomous AI agents that discover, negotiate, and pay each other across chains. Built on ADI Chain with zero gas fees.",
+    "Autonomous AI agents that discover, negotiate, and pay each other across chains. Built on OG Chain with zero gas fees.",
 };
 
 export default function RootLayout({

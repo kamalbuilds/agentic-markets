@@ -72,11 +72,10 @@ function StarRating({ rating }: { rating: number }) {
       {Array.from({ length: 5 }).map((_, i) => (
         <Star
           key={i}
-          className={`size-3.5 ${
-            i < Math.round(rating)
+          className={`size-3.5 ${i < Math.round(rating)
               ? "fill-yellow-400 text-yellow-400"
               : "fill-none text-zinc-600"
-          }`}
+            }`}
         />
       ))}
       <span className="ml-1 text-xs text-zinc-400">
@@ -257,10 +256,9 @@ export default function AgentMarketplacePage() {
                         </CardTitle>
                         <Badge
                           variant="outline"
-                          className={`mt-1 text-[10px] ${
-                            CATEGORY_COLORS[meta.category] ??
+                          className={`mt-1 text-[10px] ${CATEGORY_COLORS[meta.category] ??
                             CATEGORY_COLORS.General
-                          }`}
+                            }`}
                         >
                           {meta.category}
                         </Badge>
@@ -319,9 +317,8 @@ export default function AgentMarketplacePage() {
       {/* ---------- on-chain status footer ---------- */}
       <div className="mt-12 flex items-center justify-center gap-2 text-xs text-zinc-600">
         <span
-          className={`inline-block size-2 rounded-full ${
-            agentCount > 0 ? "bg-green-500" : "bg-yellow-500"
-          }`}
+          className={`inline-block size-2 rounded-full ${agentCount > 0 ? "bg-green-500" : "bg-yellow-500"
+            }`}
         />
         {agentCount > 0
           ? `${agentCount} agent${agentCount !== 1 ? "s" : ""} registered on AgentRegistry (${contracts.agentRegistry.slice(0, 10)}...)`
