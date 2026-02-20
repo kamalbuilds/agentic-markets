@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useParams } from "next/navigation";
 import {
   Card,
@@ -23,6 +23,10 @@ import {
   QrCode,
   Download,
   Copy,
+  ArrowLeftRight,
+  DollarSign,
+  RefreshCw,
+  TrendingUp,
 } from "lucide-react";
 import {
   useWriteContract,
@@ -32,6 +36,7 @@ import {
 } from "wagmi";
 import { MERCHANT_VAULT_ABI } from "@/lib/contracts";
 import { useChainContracts } from "@/lib/useChainContracts";
+import { useCryptoPrice } from "@/lib/useCryptoPrice";
 import { parseEther, keccak256, toHex, zeroAddress } from "viem";
 import { toast } from "sonner";
 import { QRCodeSVG } from "qrcode.react";
@@ -57,7 +62,18 @@ export default function CheckoutPage() {
   const EXPLORER_URL = chainMeta.explorerUrl;
 
   const [amount, setAmount] = useState("");
+  const [fiatAmount, setFiatAmount] = useState("");
+  const [inputMode, setInputMode] = useState<"crypto" | "fiat">("crypto");
   const [txStatus, setTxStatus] = useState<TxStatus>("idle");
+
+  // Price conversion hook
+  const {
+    price: cryptoPrice,
+    isLoading: isPriceLoading,
+    cryptoToUsd,
+    usdToCrypto,
+    refresh: refreshPrice,
+  } = useCryptoPrice(isHedera, chainMeta.currencySymbol);
 
   const isContractDeployed =
     contracts.merchantVault !== zeroAddress;
@@ -99,6 +115,52 @@ export default function CheckoutPage() {
 
   const [showQR, setShowQR] = useState(false);
   const [qrCopied, setQrCopied] = useState(false);
+
+  // Compute the USD equivalent of the current crypto amount
+  const usdEquivalent = useMemo(() => {
+    if (!amount || parseFloat(amount) <= 0) return null;
+    return cryptoToUsd(amount);
+  }, [amount, cryptoToUsd]);
+
+  // Format USD for display
+  const formatUsd = useCallback((val: number | null): string => {
+    if (val === null) return "";
+    if (val < 0.01 && val > 0) return `~$${val.toFixed(6)} USD`;
+    return `~$${val.toFixed(2)} USD`;
+  }, []);
+
+  // Handle crypto amount change (in crypto mode)
+  const handleCryptoAmountChange = useCallback(
+    (value: string) => {
+      setAmount(value);
+      if (value && parseFloat(value) > 0) {
+        const usd = cryptoToUsd(value);
+        setFiatAmount(usd !== null ? usd.toFixed(2) : "");
+      } else {
+        setFiatAmount("");
+      }
+    },
+    [cryptoToUsd]
+  );
+
+  // Handle fiat amount change (in fiat mode)
+  const handleFiatAmountChange = useCallback(
+    (value: string) => {
+      setFiatAmount(value);
+      if (value && parseFloat(value) > 0) {
+        const crypto = usdToCrypto(value);
+        setAmount(crypto !== null ? crypto.toFixed(6) : "");
+      } else {
+        setAmount("");
+      }
+    },
+    [usdToCrypto]
+  );
+
+  // Toggle input mode
+  const toggleInputMode = useCallback(() => {
+    setInputMode((prev) => (prev === "crypto" ? "fiat" : "crypto"));
+  }, []);
 
   const generateOrderId = () => {
     if (!address) return "0x" as `0x${string}`;
@@ -270,26 +332,121 @@ export default function CheckoutPage() {
                 </div>
               </div>
 
+              {/* Price Feed Badge */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Badge
+                    variant="outline"
+                    className={
+                      cryptoPrice.isLive
+                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                        : "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                    }
+                  >
+                    <TrendingUp className="mr-1 h-3 w-3" />
+                    {cryptoPrice.source}
+                  </Badge>
+                  {isPriceLoading && (
+                    <Loader2 className="h-3 w-3 animate-spin text-neutral-500" />
+                  )}
+                </div>
+                <button
+                  onClick={refreshPrice}
+                  className="flex items-center gap-1 text-xs text-neutral-500 transition-colors hover:text-neutral-300"
+                  title="Refresh price"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                </button>
+              </div>
+
+              {/* Rate Display */}
+              {cryptoPrice.usdPrice > 0 && (
+                <div className="rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2">
+                  <p className="text-xs text-neutral-500">
+                    1 {chainMeta.currencySymbol} = ${cryptoPrice.usdPrice < 0.01 ? cryptoPrice.usdPrice.toFixed(6) : cryptoPrice.usdPrice.toFixed(4)} USD
+                  </p>
+                </div>
+              )}
+
               {/* Amount Input */}
               <div className="space-y-2">
-                <label className="text-sm font-medium text-neutral-300">
-                  Payment Amount
-                </label>
-                <div className="relative">
-                  <Input
-                    type="number"
-                    step="0.001"
-                    min="0"
-                    placeholder="0.00"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium text-neutral-300">
+                    Payment Amount
+                  </label>
+                  <button
+                    onClick={toggleInputMode}
                     disabled={currentStatus === "pending" || currentStatus === "confirming"}
-                    className="h-14 border-white/10 bg-white/[0.05] pr-16 text-2xl font-semibold text-white placeholder:text-neutral-600 focus:border-indigo-500/50"
-                  />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-indigo-400">
-                    {chainMeta.currencySymbol}
-                  </span>
+                    className="flex items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-1 text-xs font-medium text-neutral-400 transition-colors hover:bg-white/[0.06] hover:text-neutral-200 disabled:opacity-40"
+                  >
+                    <ArrowLeftRight className="h-3 w-3" />
+                    {inputMode === "crypto" ? "Pay in USD" : `Pay in ${chainMeta.currencySymbol}`}
+                  </button>
                 </div>
+
+                {inputMode === "crypto" ? (
+                  /* Crypto input mode */
+                  <div className="space-y-1.5">
+                    <div className="relative">
+                      <Input
+                        type="number"
+                        step="0.001"
+                        min="0"
+                        placeholder="0.00"
+                        value={amount}
+                        onChange={(e) => handleCryptoAmountChange(e.target.value)}
+                        disabled={currentStatus === "pending" || currentStatus === "confirming"}
+                        className="h-14 border-white/10 bg-white/[0.05] pr-16 text-2xl font-semibold text-white placeholder:text-neutral-600 focus:border-indigo-500/50"
+                      />
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-indigo-400">
+                        {chainMeta.currencySymbol}
+                      </span>
+                    </div>
+                    {/* USD equivalent */}
+                    {usdEquivalent !== null && usdEquivalent > 0 && (
+                      <div className="flex items-center gap-1.5 pl-1">
+                        <DollarSign className="h-3 w-3 text-neutral-500" />
+                        <p className="text-sm text-neutral-400">
+                          {amount} {chainMeta.currencySymbol}{" "}
+                          <span className="text-indigo-400">
+                            ({formatUsd(usdEquivalent)})
+                          </span>
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  /* Fiat (USD) input mode */
+                  <div className="space-y-1.5">
+                    <div className="relative">
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="0.00"
+                        value={fiatAmount}
+                        onChange={(e) => handleFiatAmountChange(e.target.value)}
+                        disabled={currentStatus === "pending" || currentStatus === "confirming"}
+                        className="h-14 border-white/10 bg-white/[0.05] pr-16 text-2xl font-semibold text-white placeholder:text-neutral-600 focus:border-indigo-500/50"
+                      />
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-emerald-400">
+                        USD
+                      </span>
+                    </div>
+                    {/* Crypto equivalent */}
+                    {amount && parseFloat(amount) > 0 && (
+                      <div className="flex items-center gap-1.5 pl-1">
+                        <ArrowLeftRight className="h-3 w-3 text-neutral-500" />
+                        <p className="text-sm text-neutral-400">
+                          You will pay{" "}
+                          <span className="font-semibold text-indigo-400">
+                            {parseFloat(amount).toFixed(6)} {chainMeta.currencySymbol}
+                          </span>
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Security note */}
@@ -298,8 +455,8 @@ export default function CheckoutPage() {
                 <p className="text-xs leading-relaxed text-neutral-500">
                   This transaction is secured by {chainMeta.name} smart contracts.
                   {isHedera
-                    ? "On Hedera, use ERC-20 (DDSC) for payments."
-                    : "Gas fees are sponsored by the ADI Paymaster -- you pay nothing extra."}
+                    ? " On Hedera, use ERC-20 (DDSC) for payments."
+                    : " Gas fees are sponsored by the ADI Paymaster -- you pay nothing extra."}
                 </p>
               </div>
 
@@ -425,7 +582,11 @@ export default function CheckoutPage() {
                     Payment Complete!
                   </p>
                   <p className="mt-1 text-sm text-neutral-400">
-                    Your payment of {amount} {chainMeta.currencySymbol} was successful.
+                    Your payment of {amount} {chainMeta.currencySymbol}
+                    {usdEquivalent !== null && usdEquivalent > 0
+                      ? ` (${formatUsd(usdEquivalent)})`
+                      : ""}{" "}
+                    was successful.
                   </p>
                   <a
                     href={`${EXPLORER_URL}/tx/${txHash}`}
@@ -484,6 +645,8 @@ export default function CheckoutPage() {
                   onClick={() => {
                     setTxStatus("idle");
                     setAmount("");
+                    setFiatAmount("");
+                    setInputMode("crypto");
                   }}
                   className="h-12 w-full rounded-xl bg-indigo-600 text-base font-semibold text-white hover:bg-indigo-500 transition-colors"
                 >
