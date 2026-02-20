@@ -12,8 +12,8 @@
   "agents": {
     "defaults": {
       "model": {
-        "primary": "openrouter/anthropic/claude-sonnet-4-5",
-        "fallbacks": ["openrouter/openai/gpt-4o", "openrouter/google/gemini-2.0-flash-001"]
+        "primary": "openrouter/google/gemini-2.0-flash-001",
+        "fallbacks": ["openrouter/google/gemini-2.5-flash-preview", "openrouter/anthropic/claude-sonnet-4-5"]
       }
     },
     "list": [
@@ -35,6 +35,12 @@
         "name": "Analytics Agent",
         "workspace": "/data/workspace-analytics",
         "agentDir": "/data/agents/analytics/agent"
+      },
+      {
+        "id": "defi",
+        "name": "DeFi Agent",
+        "workspace": "/data/workspace-defi",
+        "agentDir": "/data/agents/defi/agent"
       }
     ]
   },
@@ -46,7 +52,22 @@
   "tools": {
     "agentToAgent": {
       "enabled": true,
-      "allow": ["commerce", "merchant", "analytics"]
+      "allow": ["commerce", "merchant", "analytics", "defi"]
+    },
+    "mcp": {
+      "servers": [
+        {
+          "id": "agentmarket",
+          "name": "AgentMarket MCP",
+          "command": "node",
+          "args": ["/app/mcp-server/dist/index.js"],
+          "env": {
+            "AGENT_PRIVATE_KEY": "${COMMERCE_AGENT_KEY}",
+            "HEDERA_PRIVATE_KEY": "${HEDERA_PRIVATE_KEY}",
+            "HEDERA_ACCOUNT_ID": "${HEDERA_ACCOUNT_ID}"
+          }
+        }
+      ]
     }
   },
   "channels": {}

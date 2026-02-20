@@ -544,9 +544,9 @@ INITIALIZE:
 LOOP (runs indefinitely):
 
   ┌─────────────────────────────────────────────────────┐
-  │                    1. MONITOR                        │
-  │                                                      │
-  │  - Poll for new payment events (incoming tasks).     │
+  │                    1. MONITOR                       │
+  │                                                     │
+  │  - Poll for new payment events (incoming tasks).    |
   │  - Check for task completion notifications from       │
   │    hired sub-agents.                                  │
   │  - Check DDSC balance.                                │
