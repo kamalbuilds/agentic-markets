@@ -52,22 +52,6 @@ This is real-world asset tokenization: AI agents are real-world digital assets p
   sealed for the owner's public key. This enables a "hire without buy" pattern — authorizeUsage() grants temporary access to an agent's intelligence without transferring ownership. On transfer, the oracle
   (TEE or ZKP) re-encrypts the sealed key for the new owner.
 
-  5 real on-chain transactions verified:
-
-  ┌──────────────────────────┬───────────────┬──────────┐
-  │        Operation         │    Tx Hash    │  Block   │
-  ├──────────────────────────┼───────────────┼──────────┤
-  │ Mint iNFT #1 (TEE)       │ 0x6626f044... │ 21104375 │
-  ├──────────────────────────┼───────────────┼──────────┤
-  │ Authorize Usage          │ 0x58ee47d5... │ 21104442 │
-  ├──────────────────────────┼───────────────┼──────────┤
-  │ Transfer (re-encryption) │ 0xb87e47ff... │ 21104487 │
-  ├──────────────────────────┼───────────────┼──────────┤
-  │ Mint iNFT #2 (TEE)       │ 0x22dd3146... │ 21105495 │
-  ├──────────────────────────┼───────────────┼──────────┤
-  │ Mint iNFT #3 (ZKP)       │ 0x42afc8ab... │ 21105713 │
-  └──────────────────────────┴───────────────┴──────────┘
-
   3. 0G DeFAI Decision Engine
   A hybrid local+AI decision engine for autonomous agent hiring. Local scoring (agent matching, risk assessment, payment routing) is augmented by real 0G inference that provides nuanced analysis — agent
   assessment, task feasibility, yield optimization suggestions, and guardrail recommendations. Graceful degradation: if inference is unavailable, falls back to local-only reasoning.
@@ -102,7 +86,7 @@ This is real-world asset tokenization: AI agents are real-world digital assets p
   - Inference Contract: 0xa79F4c8311FF93C06b8CfB403690cc987c93F91E
   - Ledger Contract: 0xE70830508dAc0A97e6c087c75f402f9Be669E406\
 
-   5 On-Chain Transaction Hashes (0G Galileo Testnet)
+ ###  5 On-Chain Transaction Hashes (0G Galileo Testnet)
 
   #: 1
   Operation: Mint iNFT #1 (CodeForge AI, TEE)
