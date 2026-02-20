@@ -4,13 +4,14 @@ import Link from "next/link";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Bot, Store, LayoutDashboard, RefreshCw, Zap } from "lucide-react";
+import { Bot, Store, LayoutDashboard, RefreshCw, Zap, Activity } from "lucide-react";
 
 const navItems = [
   { href: "/agents", label: "Agents", icon: Bot },
   { href: "/merchant", label: "Merchant", icon: Store },
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/subscriptions", label: "Subscriptions", icon: RefreshCw },
+  { href: "/activity", label: "Activity", icon: Activity },
 ];
 
 export function Header() {

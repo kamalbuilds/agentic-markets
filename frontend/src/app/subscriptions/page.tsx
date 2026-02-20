@@ -93,60 +93,104 @@ function getCountdown(nextPayment: bigint): string {
   return `${seconds}s`;
 }
 
-type ScheduleStatus = "scheduled" | "pending" | "executed" | "manual";
+type ScheduleLifecycle = "created" | "pending" | "executed" | "failed" | "manual" | "cancelled";
 
-function getScheduleStatus(
+function getScheduleLifecycle(
   sub: SubscriptionData,
   isHedera: boolean,
   scheduleId: string | undefined,
-): { status: ScheduleStatus; label: string; color: string } {
+): { lifecycle: ScheduleLifecycle; label: string; color: string; icon: string } {
   const now = Math.floor(Date.now() / 1000);
   const nextPay = Number(sub.nextPayment);
 
   if (!sub.isActive) {
     return {
-      status: "executed",
+      lifecycle: "cancelled",
       label: "Cancelled",
       color: "border-neutral-500/30 bg-neutral-500/10 text-neutral-400",
+      icon: "x",
     };
   }
 
   if (isHedera && scheduleId && scheduleId !== zeroAddress) {
-    if (nextPay > now) {
+    // HSS lifecycle: Created -> Pending -> Executed/Failed
+    if (Number(sub.paymentCount) > BigInt(0) && nextPay > now) {
+      // Has executed at least one payment and next is in the future
       return {
-        status: "scheduled",
-        label: "Scheduled (HSS)",
+        lifecycle: "executed",
+        label: "Executed (HSS)",
+        color: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
+        icon: "check",
+      };
+    }
+    if (nextPay <= now && nextPay > 0) {
+      return {
+        lifecycle: "pending",
+        label: "Pending Execution",
+        color: "border-amber-500/30 bg-amber-500/10 text-amber-300",
+        icon: "clock",
+      };
+    }
+    if (Number(sub.paymentCount) === 0) {
+      return {
+        lifecycle: "created",
+        label: "Created (HSS)",
         color: "border-blue-500/30 bg-blue-500/10 text-blue-300",
+        icon: "plus",
       };
     }
     return {
-      status: "pending",
-      label: "Pending Execution",
-      color: "border-amber-500/30 bg-amber-500/10 text-amber-300",
+      lifecycle: "created",
+      label: "Scheduled (HSS)",
+      color: "border-blue-500/30 bg-blue-500/10 text-blue-300",
+      icon: "calendar",
     };
   }
 
   if (nextPay <= now && nextPay > 0) {
     return {
-      status: "pending",
+      lifecycle: "pending",
       label: "Payment Due",
       color: "border-amber-500/30 bg-amber-500/10 text-amber-300",
+      icon: "clock",
     };
   }
 
   if (!isHedera) {
     return {
-      status: "manual",
+      lifecycle: "manual",
       label: "Manual",
       color: "border-purple-500/30 bg-purple-500/10 text-purple-300",
+      icon: "play",
     };
   }
 
   return {
-    status: "scheduled",
+    lifecycle: "created",
     label: "Scheduled (HSS)",
     color: "border-blue-500/30 bg-blue-500/10 text-blue-300",
+    icon: "calendar",
   };
+}
+
+// ---------------------------------------------------------------------------
+// Explorer URL helpers
+// ---------------------------------------------------------------------------
+
+function getHashScanScheduleUrl(scheduleAddress: string): string {
+  return `https://hashscan.io/testnet/contract/${scheduleAddress}`;
+}
+
+function getHashScanContractUrl(contractAddress: string): string {
+  return `https://hashscan.io/testnet/contract/${contractAddress}`;
+}
+
+function getHashScanAccountUrl(accountAddress: string): string {
+  return `https://hashscan.io/testnet/account/${accountAddress}`;
+}
+
+function getExplorerAddressUrl(explorerUrl: string, address: string): string {
+  return `${explorerUrl}/address/${address}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -416,6 +460,213 @@ function HSSInfoSection() {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle Stepper Component
+// ---------------------------------------------------------------------------
+
+function LifecycleStepper({
+  lifecycle,
+}: {
+  lifecycle: ScheduleLifecycle;
+}) {
+  const steps: Array<{
+    key: ScheduleLifecycle;
+    label: string;
+  }> = [
+    { key: "created", label: "Created" },
+    { key: "pending", label: "Pending" },
+    { key: "executed", label: "Executed" },
+  ];
+
+  const currentIndex = lifecycle === "cancelled"
+    ? -1
+    : lifecycle === "failed"
+      ? 2
+      : lifecycle === "manual"
+        ? -1
+        : steps.findIndex((s) => s.key === lifecycle);
+
+  if (lifecycle === "manual" || lifecycle === "cancelled") return null;
+
+  return (
+    <div className="flex items-center gap-1 mt-2">
+      {steps.map((step, i) => {
+        const isActive = i <= currentIndex;
+        const isCurrent = i === currentIndex;
+        const isFailed = lifecycle === "failed" && i === 2;
+        return (
+          <div key={step.key} className="flex items-center gap-1">
+            {i > 0 && (
+              <div
+                className={`h-px w-4 ${
+                  isActive ? "bg-emerald-500/60" : "bg-white/10"
+                }`}
+              />
+            )}
+            <div className="flex items-center gap-1">
+              <div
+                className={`h-2 w-2 rounded-full ${
+                  isFailed
+                    ? "bg-red-500 ring-2 ring-red-500/30"
+                    : isCurrent
+                      ? "bg-blue-400 ring-2 ring-blue-400/30"
+                      : isActive
+                        ? "bg-emerald-400"
+                        : "bg-white/20"
+                }`}
+              />
+              <span
+                className={`text-[10px] font-medium ${
+                  isFailed
+                    ? "text-red-400"
+                    : isCurrent
+                      ? "text-blue-300"
+                      : isActive
+                        ? "text-emerald-400/70"
+                        : "text-neutral-600"
+                }`}
+              >
+                {isFailed ? "Failed" : step.label}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Transaction Links Component
+// ---------------------------------------------------------------------------
+
+function TransactionLinks({
+  subId,
+  sub,
+  scheduleId,
+  isHedera,
+  explorerUrl,
+  subscriptionManagerAddress,
+}: {
+  subId: number;
+  sub: SubscriptionData;
+  scheduleId: string | undefined;
+  isHedera: boolean;
+  explorerUrl: string;
+  subscriptionManagerAddress: string;
+}) {
+  const hasSchedule = scheduleId && scheduleId !== zeroAddress;
+
+  return (
+    <div className="mt-3 rounded-lg border border-white/5 bg-white/[0.02] px-4 py-3">
+      <div className="mb-2 flex items-center gap-1.5">
+        <ExternalLink className="h-3.5 w-3.5 text-indigo-400" />
+        <span className="text-xs font-medium text-neutral-300">Transaction Links</span>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {/* Schedule entity link (Hedera only) */}
+        {isHedera && hasSchedule && (
+          <a
+            href={getHashScanScheduleUrl(scheduleId)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-blue-500/20 bg-blue-500/5 px-2.5 py-1.5 text-[11px] font-medium text-blue-300 transition-colors hover:bg-blue-500/10 hover:border-blue-500/30"
+          >
+            <CalendarClock className="h-3 w-3" />
+            HSS Schedule
+            <ExternalLink className="h-2.5 w-2.5 opacity-60" />
+          </a>
+        )}
+
+        {/* Subscription Manager contract link */}
+        {isHedera ? (
+          <a
+            href={getHashScanContractUrl(subscriptionManagerAddress)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-500/20 bg-indigo-500/5 px-2.5 py-1.5 text-[11px] font-medium text-indigo-300 transition-colors hover:bg-indigo-500/10 hover:border-indigo-500/30"
+          >
+            <Shield className="h-3 w-3" />
+            Contract
+            <ExternalLink className="h-2.5 w-2.5 opacity-60" />
+          </a>
+        ) : (
+          <a
+            href={getExplorerAddressUrl(explorerUrl, subscriptionManagerAddress)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-purple-500/20 bg-purple-500/5 px-2.5 py-1.5 text-[11px] font-medium text-purple-300 transition-colors hover:bg-purple-500/10 hover:border-purple-500/30"
+          >
+            <Shield className="h-3 w-3" />
+            Contract
+            <ExternalLink className="h-2.5 w-2.5 opacity-60" />
+          </a>
+        )}
+
+        {/* Subscriber account link */}
+        {isHedera ? (
+          <a
+            href={getHashScanAccountUrl(sub.subscriber)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-2.5 py-1.5 text-[11px] font-medium text-emerald-300 transition-colors hover:bg-emerald-500/10 hover:border-emerald-500/30"
+          >
+            <Wallet className="h-3 w-3" />
+            Subscriber
+            <ExternalLink className="h-2.5 w-2.5 opacity-60" />
+          </a>
+        ) : (
+          <a
+            href={getExplorerAddressUrl(explorerUrl, sub.subscriber)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-2.5 py-1.5 text-[11px] font-medium text-emerald-300 transition-colors hover:bg-emerald-500/10 hover:border-emerald-500/30"
+          >
+            <Wallet className="h-3 w-3" />
+            Subscriber
+            <ExternalLink className="h-2.5 w-2.5 opacity-60" />
+          </a>
+        )}
+
+        {/* ERC20 token contract link */}
+        {sub.token !== zeroAddress && (
+          isHedera ? (
+            <a
+              href={getHashScanContractUrl(sub.token)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/20 bg-cyan-500/5 px-2.5 py-1.5 text-[11px] font-medium text-cyan-300 transition-colors hover:bg-cyan-500/10 hover:border-cyan-500/30"
+            >
+              <Coins className="h-3 w-3" />
+              Token
+              <ExternalLink className="h-2.5 w-2.5 opacity-60" />
+            </a>
+          ) : (
+            <a
+              href={getExplorerAddressUrl(explorerUrl, sub.token)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/20 bg-cyan-500/5 px-2.5 py-1.5 text-[11px] font-medium text-cyan-300 transition-colors hover:bg-cyan-500/10 hover:border-cyan-500/30"
+            >
+              <Coins className="h-3 w-3" />
+              Token
+              <ExternalLink className="h-2.5 w-2.5 opacity-60" />
+            </a>
+          )
+        )}
+
+        {/* Payment execution info */}
+        {Number(sub.paymentCount) > 0 && (
+          <span className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1.5 text-[11px] font-medium text-neutral-400">
+            <Activity className="h-3 w-3" />
+            {sub.paymentCount.toString()} payment{Number(sub.paymentCount) !== 1 ? "s" : ""} executed
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -979,7 +1230,7 @@ export default function SubscriptionsPage() {
                       const scheduleId = allScheduleIds?.[idx]?.status === "success"
                         ? (allScheduleIds[idx].result as unknown as string)
                         : undefined;
-                      const scheduleInfo = getScheduleStatus(sub, isHedera, scheduleId);
+                      const scheduleInfo = getScheduleLifecycle(sub, isHedera, scheduleId);
                       const now = Math.floor(Date.now() / 1000);
                       const isDue = sub.isActive && Number(sub.nextPayment) > 0 && Number(sub.nextPayment) <= now;
 
@@ -1012,19 +1263,25 @@ export default function SubscriptionsPage() {
                                   >
                                     {sub.isActive ? "Active" : "Cancelled"}
                                   </Badge>
-                                  {/* Schedule status badge */}
+                                  {/* Schedule lifecycle badge */}
                                   <Badge variant="outline" className={scheduleInfo.color}>
-                                    {scheduleInfo.status === "scheduled" && (
+                                    {scheduleInfo.lifecycle === "created" && (
                                       <CalendarClock className="mr-1 h-3 w-3" />
                                     )}
-                                    {scheduleInfo.status === "pending" && (
+                                    {scheduleInfo.lifecycle === "pending" && (
                                       <Clock className="mr-1 h-3 w-3" />
                                     )}
-                                    {scheduleInfo.status === "executed" && (
+                                    {scheduleInfo.lifecycle === "executed" && (
                                       <CheckCircle2 className="mr-1 h-3 w-3" />
                                     )}
-                                    {scheduleInfo.status === "manual" && (
+                                    {scheduleInfo.lifecycle === "failed" && (
+                                      <XCircle className="mr-1 h-3 w-3" />
+                                    )}
+                                    {scheduleInfo.lifecycle === "manual" && (
                                       <Play className="mr-1 h-3 w-3" />
+                                    )}
+                                    {scheduleInfo.lifecycle === "cancelled" && (
+                                      <XCircle className="mr-1 h-3 w-3" />
                                     )}
                                     {scheduleInfo.label}
                                   </Badge>
@@ -1062,15 +1319,37 @@ export default function SubscriptionsPage() {
                                   </div>
                                 )}
 
-                                {/* Subscriber address */}
-                                <p className="mt-1.5 font-mono text-xs text-neutral-600">
-                                  Subscriber: {sub.subscriber.slice(0, 6)}...{sub.subscriber.slice(-4)}
+                                {/* Subscriber address with explorer link */}
+                                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-neutral-600">
+                                  <a
+                                    href={isHedera
+                                      ? getHashScanAccountUrl(sub.subscriber)
+                                      : getExplorerAddressUrl(EXPLORER_URL, sub.subscriber)
+                                    }
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 hover:text-indigo-400 transition-colors"
+                                  >
+                                    Subscriber: {sub.subscriber.slice(0, 6)}...{sub.subscriber.slice(-4)}
+                                    <ExternalLink className="h-2.5 w-2.5 opacity-50" />
+                                  </a>
                                   {scheduleId && scheduleId !== zeroAddress && (
-                                    <span className="ml-3 text-blue-500/70">
+                                    <a
+                                      href={getHashScanScheduleUrl(scheduleId)}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 text-blue-500/70 hover:text-blue-400 transition-colors"
+                                    >
                                       Schedule: {scheduleId.slice(0, 6)}...{scheduleId.slice(-4)}
-                                    </span>
+                                      <ExternalLink className="h-2.5 w-2.5 opacity-50" />
+                                    </a>
                                   )}
-                                </p>
+                                </div>
+
+                                {/* Lifecycle stepper for HSS subscriptions */}
+                                {isHedera && scheduleId && scheduleId !== zeroAddress && (
+                                  <LifecycleStepper lifecycle={scheduleInfo.lifecycle} />
+                                )}
                               </div>
                             </div>
 
@@ -1131,6 +1410,16 @@ export default function SubscriptionsPage() {
                           {sub.isActive && Number(sub.paymentCount) >= 0 && (
                             <ScheduleTimeline sub={sub} isHedera={isHedera} />
                           )}
+
+                          {/* Transaction Links */}
+                          <TransactionLinks
+                            subId={subId}
+                            sub={sub}
+                            scheduleId={scheduleId}
+                            isHedera={isHedera}
+                            explorerUrl={EXPLORER_URL}
+                            subscriptionManagerAddress={contracts.subscriptionManager}
+                          />
                         </div>
                       );
                     })}
@@ -1146,7 +1435,10 @@ export default function SubscriptionsPage() {
                   <div className="flex items-center justify-between">
                     <p className="text-sm text-neutral-400">SubscriptionManager Contract</p>
                     <a
-                      href={`${EXPLORER_URL}/address/${contracts.subscriptionManager}`}
+                      href={isHedera
+                        ? getHashScanContractUrl(contracts.subscriptionManager)
+                        : getExplorerAddressUrl(EXPLORER_URL, contracts.subscriptionManager)
+                      }
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1.5 font-mono text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
