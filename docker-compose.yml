@@ -11,19 +11,23 @@ services:
     command: ["echo", "MCP server built"]
 
   openclaw:
-    image: openclaw/openclaw:latest
+    image: ghcr.io/zjuuu/openclaw-docker:openclaw-v2026.2.12
     container_name: agentmarket-openclaw
     environment:
       - HOME=/home/node
       - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-agentmarket-dev-token}
       - OPENCLAW_CONFIG_PATH=/data/openclaw.json
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - COMMERCE_AGENT_KEY=${COMMERCE_AGENT_KEY}
       - MERCHANT_AGENT_KEY=${MERCHANT_AGENT_KEY}
+      - HEDERA_PRIVATE_KEY=${HEDERA_PRIVATE_KEY:-}
+      - HEDERA_ACCOUNT_ID=${HEDERA_ACCOUNT_ID:-}
     volumes:
       - ./openclaw/openclaw.json:/data/openclaw.json:ro
       - ./openclaw/skills:/data/skills:ro
+      - ./openclaw/agents:/data/agents:ro
       - mcp-dist:/app/mcp-server:ro
       - openclaw-data:/home/node/.openclaw
     ports:
@@ -47,6 +51,7 @@ services:
       - NEXT_PUBLIC_ADI_PAYMASTER=0x804911e28D000695b6DD6955EEbF175EbB628A16
       - NEXT_PUBLIC_MOCK_DDSC=0x66bfba26d31e008dF0a6D40333e01bd1213CB109
       - PAYMASTER_SIGNER_PRIVATE_KEY=${PAYMASTER_SIGNER_KEY}
+      - OG_PRIVATE_KEY=${OG_PRIVATE_KEY}
       - NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=ethdenver2026-agentmarket
     ports:
       - "3000:3000"
