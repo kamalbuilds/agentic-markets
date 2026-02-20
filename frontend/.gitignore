@@ -40,3 +40,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .env*.local
+
+# iNFT persistent store (runtime state from 0G API)
+.inft-store.json

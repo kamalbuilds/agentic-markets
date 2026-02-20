@@ -4,14 +4,18 @@ import Link from "next/link";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Bot, Store, LayoutDashboard, RefreshCw, Zap, Activity } from "lucide-react";
+import { Bot, Store, LayoutDashboard, RefreshCw, Zap, Activity, TrendingUp, Network, Brain, ListTodo } from "lucide-react";
 
 const navItems = [
   { href: "/agents", label: "Agents", icon: Bot },
+  { href: "/agents/flow", label: "Agent Flow", icon: TrendingUp },
+  { href: "/kite", label: "Kite AI", icon: Network },
+  { href: "/0g", label: "0G AI", icon: Brain },
   { href: "/merchant", label: "Merchant", icon: Store },
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/subscriptions", label: "Subscriptions", icon: RefreshCw },
   { href: "/activity", label: "Activity", icon: Activity },
+  { href: "/agents/flow", label: "Tasks", icon: ListTodo },
 ];
 
 export function Header() {
@@ -32,7 +36,7 @@ export function Header() {
           <nav className="hidden md:flex items-center gap-1">
             {navItems.map(({ href, label, icon: Icon }) => (
               <Link
-                key={href}
+                key={label}
                 href={href}
                 className={cn(
                   "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
