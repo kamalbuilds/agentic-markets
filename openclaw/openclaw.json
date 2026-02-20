@@ -1,0 +1,53 @@
+{
+  "env": {
+    "OPENROUTER_API_KEY": "${OPENROUTER_API_KEY}"
+  },
+  "gateway": {
+    "mode": "local",
+    "port": 18789,
+    "auth": {
+      "token": "${OPENCLAW_GATEWAY_TOKEN}"
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "openrouter/anthropic/claude-sonnet-4-5",
+        "fallbacks": ["openrouter/openai/gpt-4o", "openrouter/google/gemini-2.0-flash-001"]
+      }
+    },
+    "list": [
+      {
+        "id": "commerce",
+        "default": true,
+        "name": "Commerce Agent",
+        "workspace": "/data/workspace-commerce",
+        "agentDir": "/data/agents/commerce/agent"
+      },
+      {
+        "id": "merchant",
+        "name": "Merchant Agent",
+        "workspace": "/data/workspace-merchant",
+        "agentDir": "/data/agents/merchant/agent"
+      },
+      {
+        "id": "analytics",
+        "name": "Analytics Agent",
+        "workspace": "/data/workspace-analytics",
+        "agentDir": "/data/agents/analytics/agent"
+      }
+    ]
+  },
+  "skills": {
+    "load": {
+      "extraDirs": ["/data/skills"]
+    }
+  },
+  "tools": {
+    "agentToAgent": {
+      "enabled": true,
+      "allow": ["commerce", "merchant", "analytics"]
+    }
+  },
+  "channels": {}
+}

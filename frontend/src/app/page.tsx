@@ -25,7 +25,8 @@ import {
   Shield,
 } from "lucide-react";
 import { useReadContract } from "wagmi";
-import { CONTRACTS, AGENT_REGISTRY_ABI, PAYMENT_ROUTER_ABI, MERCHANT_VAULT_ABI } from "@/lib/contracts";
+import { AGENT_REGISTRY_ABI, PAYMENT_ROUTER_ABI, MERCHANT_VAULT_ABI } from "@/lib/contracts";
+import { useChainContracts } from "@/lib/useChainContracts";
 import { formatEther } from "viem";
 
 const features = [
@@ -85,23 +86,25 @@ const steps = [
 const bounties = ["ADI Chain", "Hedera", "Kite AI", "ERC-4337"];
 
 export default function Home() {
+  const { contracts, chainMeta } = useChainContracts();
+
   const { data: activeAgents } = useReadContract({
-    address: CONTRACTS.agentRegistry,
+    address: contracts.agentRegistry,
     abi: AGENT_REGISTRY_ABI,
     functionName: "getActiveAgentCount",
   });
   const { data: totalPayments } = useReadContract({
-    address: CONTRACTS.paymentRouter,
+    address: contracts.paymentRouter,
     abi: PAYMENT_ROUTER_ABI,
     functionName: "totalPayments",
   });
   const { data: totalVolume } = useReadContract({
-    address: CONTRACTS.paymentRouter,
+    address: contracts.paymentRouter,
     abi: PAYMENT_ROUTER_ABI,
     functionName: "totalVolume",
   });
   const { data: merchantCount } = useReadContract({
-    address: CONTRACTS.merchantVault,
+    address: contracts.merchantVault,
     abi: MERCHANT_VAULT_ABI,
     functionName: "nextMerchantId",
   });
@@ -109,7 +112,7 @@ export default function Home() {
   const stats = [
     { label: "Active Agents", value: activeAgents ? activeAgents.toString() : "...", icon: Bot },
     { label: "Total Payments", value: totalPayments ? totalPayments.toString() : "...", icon: Activity },
-    { label: "Total Volume", value: totalVolume ? `${formatEther(totalVolume)} ADI` : "...", icon: Coins },
+    { label: "Total Volume", value: totalVolume ? `${formatEther(totalVolume)} ${chainMeta.currencySymbol}` : "...", icon: Coins },
     { label: "Merchants", value: merchantCount ? (Number(merchantCount) - 1).toString() : "...", icon: Users },
   ];
 

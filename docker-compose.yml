@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  mcp-server:
+    build:
+      context: ./mcp-server
+      dockerfile: Dockerfile
+    container_name: agentmarket-mcp
+    volumes:
+      - mcp-dist:/app
+    command: ["echo", "MCP server built"]
+
+  openclaw:
+    image: openclaw/openclaw:latest
+    container_name: agentmarket-openclaw
+    environment:
+      - HOME=/home/node
+      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-agentmarket-dev-token}
+      - OPENCLAW_CONFIG_PATH=/data/openclaw.json
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - COMMERCE_AGENT_KEY=${COMMERCE_AGENT_KEY}
+      - MERCHANT_AGENT_KEY=${MERCHANT_AGENT_KEY}
+    volumes:
+      - ./openclaw/openclaw.json:/data/openclaw.json:ro
+      - ./openclaw/skills:/data/skills:ro
+      - mcp-dist:/app/mcp-server:ro
+      - openclaw-data:/home/node/.openclaw
+    ports:
+      - "18789:18789"
+    restart: unless-stopped
+    depends_on:
+      mcp-server:
+        condition: service_completed_successfully
+      frontend:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: agentmarket-frontend
+    environment:
+      - NEXT_PUBLIC_AGENT_REGISTRY=0x24fF5f6637A83CA7CA7B72b3Ad55275D669Ab7da
+      - NEXT_PUBLIC_PAYMENT_ROUTER=0x13e935CF88Fd5a967B621aDf0b331361E8aF76f3
+      - NEXT_PUBLIC_MERCHANT_VAULT=0x809039A3A6791bb734841E1B14405FF521BC6ddb
+      - NEXT_PUBLIC_ADI_PAYMASTER=0x804911e28D000695b6DD6955EEbF175EbB628A16
+      - NEXT_PUBLIC_MOCK_DDSC=0x66bfba26d31e008dF0a6D40333e01bd1213CB109
+      - PAYMASTER_SIGNER_PRIVATE_KEY=${PAYMASTER_SIGNER_KEY}
+      - NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=ethdenver2026-agentmarket
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+volumes:
+  openclaw-data:
+  mcp-dist:

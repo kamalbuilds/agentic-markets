@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AgentMarket - Architecture Diagram</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: #0a0a0f; color: #e0e0e0; }
+
+  .container { max-width: 1400px; margin: 0 auto; padding: 40px 24px; }
+
+  h1 { font-size: 2.5rem; font-weight: 800; text-align: center; margin-bottom: 8px;
+    background: linear-gradient(135deg, #00d4ff, #7c3aed, #f472b6);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .subtitle { text-align: center; color: #888; font-size: 1.1rem; margin-bottom: 48px; }
+
+  /* Architecture Diagram */
+  .arch-section { margin-bottom: 64px; }
+  .section-title { font-size: 1.5rem; font-weight: 700; margin-bottom: 24px; color: #fff;
+    display: flex; align-items: center; gap: 12px; }
+  .section-title span { font-size: 1.3rem; }
+
+  .arch-grid { display: grid; gap: 16px; }
+
+  /* Layer boxes */
+  .layer { border-radius: 16px; padding: 24px; position: relative; overflow: hidden; }
+  .layer::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; }
+
+  .layer-users { background: linear-gradient(180deg, rgba(99,102,241,0.12) 0%, rgba(99,102,241,0.04) 100%); border: 1px solid rgba(99,102,241,0.3); }
+  .layer-users::before { background: linear-gradient(90deg, #6366f1, #818cf8); }
+
+  .layer-ai { background: linear-gradient(180deg, rgba(168,85,247,0.12) 0%, rgba(168,85,247,0.04) 100%); border: 1px solid rgba(168,85,247,0.3); }
+  .layer-ai::before { background: linear-gradient(90deg, #a855f7, #c084fc); }
+
+  .layer-mcp { background: linear-gradient(180deg, rgba(236,72,153,0.12) 0%, rgba(236,72,153,0.04) 100%); border: 1px solid rgba(236,72,153,0.3); }
+  .layer-mcp::before { background: linear-gradient(90deg, #ec4899, #f472b6); }
+
+  .layer-contracts { background: linear-gradient(180deg, rgba(20,184,166,0.12) 0%, rgba(20,184,166,0.04) 100%); border: 1px solid rgba(20,184,166,0.3); }
+  .layer-contracts::before { background: linear-gradient(90deg, #14b8a6, #2dd4bf); }
+
+  .layer-chain { background: linear-gradient(180deg, rgba(245,158,11,0.12) 0%, rgba(245,158,11,0.04) 100%); border: 1px solid rgba(245,158,11,0.3); }
+  .layer-chain::before { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+
+  .layer-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; margin-bottom: 16px; opacity: 0.7; }
+  .layer-title { font-size: 1.15rem; font-weight: 700; margin-bottom: 12px; }
+
+  .component-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+
+  .component { background: rgba(255,255,255,0.06); border-radius: 10px; padding: 14px; border: 1px solid rgba(255,255,255,0.08);
+    transition: transform 0.2s, border-color 0.2s; }
+  .component:hover { transform: translateY(-2px); border-color: rgba(255,255,255,0.2); }
+  .component-name { font-size: 0.9rem; font-weight: 600; margin-bottom: 4px; }
+  .component-desc { font-size: 0.75rem; color: #888; line-height: 1.4; }
+  .component-tag { display: inline-block; font-size: 0.65rem; padding: 2px 8px; border-radius: 99px; margin-top: 6px; font-weight: 600; }
+  .tag-live { background: rgba(34,197,94,0.2); color: #4ade80; }
+  .tag-new { background: rgba(99,102,241,0.2); color: #818cf8; }
+  .tag-tool { background: rgba(236,72,153,0.2); color: #f472b6; }
+
+  /* Arrows */
+  .arrow-row { display: flex; justify-content: center; padding: 8px 0; }
+  .arrow { color: #555; font-size: 1.5rem; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }
+
+  /* Competitors table */
+  .comp-table { width: 100%; border-collapse: separate; border-spacing: 0; border-radius: 12px; overflow: hidden; margin-top: 16px; }
+  .comp-table th { background: rgba(255,255,255,0.06); padding: 14px 16px; text-align: left; font-size: 0.8rem;
+    font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: #888; border-bottom: 1px solid rgba(255,255,255,0.08); }
+  .comp-table td { padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.85rem; vertical-align: top; }
+  .comp-table tr:hover td { background: rgba(255,255,255,0.03); }
+  .comp-table .us { background: rgba(99,102,241,0.08); }
+  .comp-table .us td { font-weight: 600; }
+
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 99px; font-size: 0.7rem; font-weight: 600; }
+  .badge-yes { background: rgba(34,197,94,0.15); color: #4ade80; }
+  .badge-no { background: rgba(239,68,68,0.15); color: #f87171; }
+  .badge-partial { background: rgba(245,158,11,0.15); color: #fbbf24; }
+  .badge-us { background: linear-gradient(135deg, #6366f1, #a855f7); color: white; }
+
+  /* Differentiators */
+  .diff-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-top: 16px; }
+  .diff-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 20px;
+    position: relative; overflow: hidden; }
+  .diff-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; }
+  .diff-card:nth-child(1)::before { background: linear-gradient(90deg, #00d4ff, #6366f1); }
+  .diff-card:nth-child(2)::before { background: linear-gradient(90deg, #a855f7, #ec4899); }
+  .diff-card:nth-child(3)::before { background: linear-gradient(90deg, #14b8a6, #34d399); }
+  .diff-card:nth-child(4)::before { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+  .diff-card:nth-child(5)::before { background: linear-gradient(90deg, #6366f1, #00d4ff); }
+  .diff-card:nth-child(6)::before { background: linear-gradient(90deg, #ec4899, #f59e0b); }
+  .diff-icon { font-size: 1.8rem; margin-bottom: 10px; }
+  .diff-title { font-size: 1rem; font-weight: 700; margin-bottom: 6px; }
+  .diff-desc { font-size: 0.8rem; color: #999; line-height: 1.5; }
+
+  /* Flow diagram */
+  .flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; margin: 24px 0; }
+  .flow-step { background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.3); border-radius: 10px;
+    padding: 10px 16px; font-size: 0.8rem; font-weight: 600; text-align: center; min-width: 120px; }
+  .flow-arrow { color: #6366f1; font-size: 1.2rem; }
+
+  /* Stats bar */
+  .stats-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 32px 0; }
+  .stat { text-align: center; padding: 16px; background: rgba(255,255,255,0.04); border-radius: 10px; border: 1px solid rgba(255,255,255,0.06); }
+  .stat-val { font-size: 1.5rem; font-weight: 800; background: linear-gradient(135deg, #00d4ff, #7c3aed);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .stat-label { font-size: 0.75rem; color: #888; margin-top: 4px; }
+
+  @media (max-width: 768px) {
+    h1 { font-size: 1.8rem; }
+    .component-grid { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h1>AgentMarket</h1>
+  <p class="subtitle">Autonomous AI Agent Commerce Platform on ADI Chain</p>
+
+  <!-- Stats bar -->
+  <div class="stats-bar">
+    <div class="stat"><div class="stat-val">6</div><div class="stat-label">Smart Contracts</div></div>
+    <div class="stat"><div class="stat-val">93</div><div class="stat-label">Tests Passing</div></div>
+    <div class="stat"><div class="stat-val">16</div><div class="stat-label">MCP Tools</div></div>
+    <div class="stat"><div class="stat-val">4</div><div class="stat-label">OpenClaw Skills</div></div>
+    <div class="stat"><div class="stat-val">3</div><div class="stat-label">AI Agents</div></div>
+    <div class="stat"><div class="stat-val">5</div><div class="stat-label">Frontend Pages</div></div>
+    <div class="stat"><div class="stat-val">$66K</div><div class="stat-label">Target Bounties</div></div>
+  </div>
+
+  <!-- ARCHITECTURE DIAGRAM -->
+  <div class="arch-section">
+    <div class="section-title"><span>&#x1f3d7;</span> System Architecture</div>
+
+    <!-- Layer 1: Users -->
+    <div class="layer layer-users">
+      <div class="layer-label">Presentation Layer</div>
+      <div class="layer-title">Next.js 16 Frontend (wagmi + viem + RainbowKit)</div>
+      <div class="component-grid">
+        <div class="component">
+          <div class="component-name">/agents</div>
+          <div class="component-desc">Browse & search AI agents. Filter by category, rating, price.</div>
+          <span class="component-tag tag-live">LIVE</span>
+        </div>
+        <div class="component">
+          <div class="component-name">/agents/[id]</div>
+          <div class="component-desc">Agent detail page. Hire & pay via PaymentRouter contract.</div>
+          <span class="component-tag tag-live">LIVE</span>
+        </div>
+        <div class="component">
+          <div class="component-name">/merchant</div>
+          <div class="component-desc">Register store, view orders, withdraw earnings from MerchantVault.</div>
+          <span class="component-tag tag-live">LIVE</span>
+        </div>
+        <div class="component">
+          <div class="component-name">/checkout/[id]</div>
+          <div class="component-desc">Embeddable checkout widget. Native + DDSC. QR-code ready.</div>
+          <span class="component-tag tag-live">LIVE</span>
+        </div>
+        <div class="component">
+          <div class="component-name">/dashboard</div>
+          <div class="component-desc">User dashboard. My agents, payment history, paymaster stats.</div>
+          <span class="component-tag tag-live">LIVE</span>
+        </div>
+        <div class="component">
+          <div class="component-name">/api/paymaster/sign</div>
+          <div class="component-desc">Backend API signing UserOperations for gas-free transactions.</div>
+          <span class="component-tag tag-new">API</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow-row"><div class="arrow">&#x2B07; &#x2B07; &#x2B07;</div></div>
+
+    <!-- Layer 2: OpenClaw AI Agents -->
+    <div class="layer layer-ai">
+      <div class="layer-label">AI Agent Layer</div>
+      <div class="layer-title">OpenClaw Autonomous Agents (3 Agents, 4 Skills)</div>
+      <div class="component-grid">
+        <div class="component">
+          <div class="component-name">Commerce Agent</div>
+          <div class="component-desc">Discovers, evaluates, hires agents. Handles negotiations & payments autonomously.</div>
+          <span class="component-tag tag-new">AUTONOMOUS</span>
+        </div>
+        <div class="component">
+          <div class="component-name">Merchant Agent</div>
+          <div class="component-desc">Manages merchant stores. Processes checkouts, tracks orders, handles withdrawals.</div>
+          <span class="component-tag tag-new">AUTONOMOUS</span>
+        </div>
+        <div class="component">
+          <div class="component-name">Analytics Agent</div>
+          <div class="component-desc">Monitors marketplace. Analyzes agent performance, payment volumes, market trends.</div>
+          <span class="component-tag tag-new">READ-ONLY</span>
+        </div>
+        <div class="component">
+          <div class="component-name">4 Custom Skills</div>
+          <div class="component-desc">commerce (321L) + merchant (399L) + defi (412L) + autonomous (786L) = 1,918 lines</div>
+          <span class="component-tag tag-tool">SKILLS</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow-row"><div class="arrow">&#x2B07; MCP Protocol (stdio) &#x2B07;</div></div>
+
+    <!-- Layer 3: MCP Server -->
+    <div class="layer layer-mcp">
+      <div class="layer-label">Tool Integration Layer</div>
+      <div class="layer-title">MCP Server (16 Tools via @modelcontextprotocol/sdk)</div>
+      <div class="component-grid">
+        <div class="component">
+          <div class="component-name">Read Tools (9)</div>
+          <div class="component-desc">get_agent, list_agents, get_agent_rating, get_merchant, get_payment, get_user_payments, get_ddsc_balance, get_platform_stats, get_paymaster_info</div>
+          <span class="component-tag tag-live">VERIFIED</span>
+        </div>
+        <div class="component">
+          <div class="component-name">Write Tools (7)</div>
+          <div class="component-desc">register_agent, pay_agent, rate_agent, register_merchant, checkout, claim_ddsc, transfer_ddsc</div>
+          <span class="component-tag tag-live">VERIFIED</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow-row"><div class="arrow">&#x2B07; viem RPC calls &#x2B07;</div></div>
+
+    <!-- Layer 4: Smart Contracts -->
+    <div class="layer layer-contracts">
+      <div class="layer-label">Smart Contract Layer</div>
+      <div class="layer-title">Solidity 0.8.26 (Foundry, 93 Tests)</div>
+      <div class="component-grid">
+        <div class="component">
+          <div class="component-name">AgentRegistry</div>
+          <div class="component-desc">Register, update, rate agents. Track tasks & reputation on-chain.</div>
+          <span class="component-tag tag-live">DEPLOYED</span>
+        </div>
+        <div class="component">
+          <div class="component-name">PaymentRouter</div>
+          <div class="component-desc">Pay agents (native + ERC20). 2.5% platform fee. Payment history tracking.</div>
+          <span class="component-tag tag-live">DEPLOYED</span>
+        </div>
+        <div class="component">
+          <div class="component-name">MerchantVault</div>
+          <div class="component-desc">Merchant registration, checkout, escrow, withdrawal. 2% fee.</div>
+          <span class="component-tag tag-live">DEPLOYED</span>
+        </div>
+        <div class="component">
+          <div class="component-name">ADIPaymaster</div>
+          <div class="component-desc">ERC-4337 Verifying Paymaster. Gas-free txns. Whitelist + rate limits.</div>
+          <span class="component-tag tag-live">DEPLOYED</span>
+        </div>
+        <div class="component">
+          <div class="component-name">MockDDSC</div>
+          <div class="component-desc">DDSC stablecoin (AED-pegged). Faucet for testnet. ERC20 standard.</div>
+          <span class="component-tag tag-live">DEPLOYED</span>
+        </div>
+        <div class="component">
+          <div class="component-name">SubscriptionManager</div>
+          <div class="component-desc">Recurring payments via Hedera HSS. Self-rescheduling loop pattern.</div>
+          <span class="component-tag tag-new">TESTED</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow-row"><div class="arrow">&#x2B07; On-Chain &#x2B07;</div></div>
+
+    <!-- Layer 5: Blockchain -->
+    <div class="layer layer-chain">
+      <div class="layer-label">Blockchain Layer</div>
+      <div class="layer-title">ADI Chain Testnet (Chain ID: 99999)</div>
+      <div class="component-grid">
+        <div class="component">
+          <div class="component-name">ADI L2</div>
+          <div class="component-desc">MENA's first institutional L2. PoA consensus. ~2s blocks. Fast finality.</div>
+          <span class="component-tag tag-live">TESTNET</span>
+        </div>
+        <div class="component">
+          <div class="component-name">EntryPoint V0.7</div>
+          <div class="component-desc">ERC-4337 singleton at 0x0000000071727De22E5E9d8BAf0edAc6f37da032</div>
+          <span class="component-tag tag-live">STANDARD</span>
+        </div>
+        <div class="component">
+          <div class="component-name">DDSC Stablecoin</div>
+          <div class="component-desc">UAE Dirham-backed. 1:1 AED peg. Launched Feb 12, 2026.</div>
+          <span class="component-tag tag-live">REAL</span>
+        </div>
+        <div class="component">
+          <div class="component-name">Hedera HSS</div>
+          <div class="component-desc">Schedule Service at 0x16b. Self-rescheduling for recurring payments.</div>
+          <span class="component-tag tag-new">INTEGRATION</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DATA FLOW -->
+  <div class="arch-section">
+    <div class="section-title"><span>&#x1f500;</span> Key Data Flows</div>
+
+    <p style="color: #888; font-size: 0.9rem; margin-bottom: 16px; font-weight: 600;">Agent Hire & Pay Flow</p>
+    <div class="flow">
+      <div class="flow-step">User browses<br/>/agents</div>
+      <div class="flow-arrow">&#x2192;</div>
+      <div class="flow-step">Select agent<br/>/agents/[id]</div>
+      <div class="flow-arrow">&#x2192;</div>
+      <div class="flow-step">Paymaster signs<br/>UserOperation</div>
+      <div class="flow-arrow">&#x2192;</div>
+      <div class="flow-step">EntryPoint V0.7<br/>validates</div>
+      <div class="flow-arrow">&#x2192;</div>
+      <div class="flow-step">PaymentRouter<br/>splits fee</div>
+      <div class="flow-arrow">&#x2192;</div>
+      <div class="flow-step">Agent gets paid<br/>Task incremented</div>
+    </div>
+
+    <p style="color: #888; font-size: 0.9rem; margin-bottom: 16px; margin-top: 24px; font-weight: 600;">Autonomous Agent-to-Agent Flow</p>
+    <div class="flow">
+      <div class="flow-step" style="border-color: rgba(168,85,247,0.4); background: rgba(168,85,247,0.1);">OpenClaw Agent<br/>receives task</div>
+      <div class="flow-arrow" style="color: #a855f7;">&#x2192;</div>
+      <div class="flow-step" style="border-color: rgba(236,72,153,0.4); background: rgba(236,72,153,0.1);">MCP: list_agents<br/>find best match</div>
+      <div class="flow-arrow" style="color: #ec4899;">&#x2192;</div>
+      <div class="flow-step" style="border-color: rgba(236,72,153,0.4); background: rgba(236,72,153,0.1);">MCP: pay_agent<br/>on-chain payment</div>
+      <div class="flow-arrow" style="color: #14b8a6;">&#x2192;</div>
+      <div class="flow-step" style="border-color: rgba(20,184,166,0.4); background: rgba(20,184,166,0.1);">PaymentRouter<br/>executes</div>
+      <div class="flow-arrow" style="color: #14b8a6;">&#x2192;</div>
+      <div class="flow-step" style="border-color: rgba(20,184,166,0.4); background: rgba(20,184,166,0.1);">MCP: rate_agent<br/>update reputation</div>
+    </div>
+  </div>
+
+  <!-- COMPETITIVE ANALYSIS -->
+  <div class="arch-section">
+    <div class="section-title"><span>&#x2694;</span> Competitive Landscape</div>
+
+    <div style="overflow-x: auto;">
+    <table class="comp-table">
+      <thead>
+        <tr>
+          <th>Platform</th>
+          <th>Type</th>
+          <th>On-Chain Payments</th>
+          <th>Agent-to-Agent</th>
+          <th>Gas-Free</th>
+          <th>Real AI Agents</th>
+          <th>Stablecoin</th>
+          <th>Open Source</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="us">
+          <td><span class="badge badge-us">AgentMarket</span></td>
+          <td>Full-stack marketplace</td>
+          <td><span class="badge badge-yes">Yes</span></td>
+          <td><span class="badge badge-yes">Yes</span></td>
+          <td><span class="badge badge-yes">Yes</span></td>
+          <td><span class="badge badge-yes">Yes</span></td>
+          <td><span class="badge badge-yes">DDSC</span></td>
+          <td><span class="badge badge-yes">Yes</span></td>
+        </tr>
+        <tr>
+          <td>Autonolas/Olas</td>
+          <td>Agent framework</td>
+          <td><span class="badge badge-yes">Yes</span></td>
+          <td><span class="badge badge-partial">Limited</span></td>
+          <td><span class="badge badge-no">No</span></td>
+          <td><span class="badge badge-yes">Yes</span></td>
+          <td><span class="badge badge-no">No</span></td>
+          <td><span class="badge badge-yes">Yes</span></td>
+        </tr>
+        <tr>
+          <td>Fetch.ai</td>
+          <td>Agent network</td>
+          <td><span class="badge badge-yes">FET token</span></td>
+          <td><span class="badge badge-yes">Yes</span></td>
+          <td><span class="badge badge-no">No</span></td>
+          <td><span class="badge badge-yes">Yes</span></td>
+          <td><span class="badge badge-no">No</span></td>
+          <td><span class="badge badge-yes">Yes</span></td>
+        </tr>
+        <tr>
+          <td>SingularityNET</td>
+          <td>AI marketplace</td>
+          <td><span class="badge badge-yes">AGIX token</span></td>
+          <td><span class="badge badge-partial">Via MPE</span></td>
+          <td><span class="badge badge-no">No</span></td>
+          <td><span class="badge badge-partial">Services</span></td>
+          <td><span class="badge badge-no">No</span></td>
+          <td><span class="badge badge-yes">Yes</span></td>
+        </tr>
+        <tr>
+          <td>Virtuals Protocol</td>
+          <td>Agent tokenization</td>
+          <td><span class="badge badge-yes">VIRTUAL</span></td>
+          <td><span class="badge badge-no">No</span></td>
+          <td><span class="badge badge-no">No</span></td>
+          <td><span class="badge badge-partial">Tokenized</span></td>
+          <td><span class="badge badge-no">No</span></td>
+          <td><span class="badge badge-partial">Partial</span></td>
+        </tr>
+        <tr>
+          <td>Stripe/OpenAI ACP</td>
+          <td>Commerce protocol</td>
+          <td><span class="badge badge-no">Fiat only</span></td>
+          <td><span class="badge badge-no">No</span></td>
+          <td><span class="badge badge-partial">N/A</span></td>
+          <td><span class="badge badge-no">No agents</span></td>
+          <td><span class="badge badge-no">USD fiat</span></td>
+          <td><span class="badge badge-yes">Yes</span></td>
+        </tr>
+        <tr>
+          <td>Google AP2</td>
+          <td>Payment protocol</td>
+          <td><span class="badge badge-partial">Optional</span></td>
+          <td><span class="badge badge-no">No</span></td>
+          <td><span class="badge badge-partial">N/A</span></td>
+          <td><span class="badge badge-no">No agents</span></td>
+          <td><span class="badge badge-partial">Multi</span></td>
+          <td><span class="badge badge-yes">Yes</span></td>
+        </tr>
+        <tr>
+          <td>Nevermined</td>
+          <td>Payment infra</td>
+          <td><span class="badge badge-yes">Yes</span></td>
+          <td><span class="badge badge-yes">Yes</span></td>
+          <td><span class="badge badge-partial">Via x402</span></td>
+          <td><span class="badge badge-no">No agents</span></td>
+          <td><span class="badge badge-yes">USDC</span></td>
+          <td><span class="badge badge-partial">Partial</span></td>
+        </tr>
+        <tr>
+          <td>Bittensor</td>
+          <td>Decentralized AI</td>
+          <td><span class="badge badge-yes">TAO token</span></td>
+          <td><span class="badge badge-partial">Subnets</span></td>
+          <td><span class="badge badge-no">No</span></td>
+          <td><span class="badge badge-partial">Miners</span></td>
+          <td><span class="badge badge-no">No</span></td>
+          <td><span class="badge badge-yes">Yes</span></td>
+        </tr>
+        <tr>
+          <td>CrewAI / ELIZA</td>
+          <td>Agent framework</td>
+          <td><span class="badge badge-no">No</span></td>
+          <td><span class="badge badge-partial">Orchestrated</span></td>
+          <td><span class="badge badge-partial">N/A</span></td>
+          <td><span class="badge badge-yes">Yes</span></td>
+          <td><span class="badge badge-no">No</span></td>
+          <td><span class="badge badge-yes">Yes</span></td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <!-- KEY DIFFERENTIATORS -->
+  <div class="arch-section">
+    <div class="section-title"><span>&#x1f4a1;</span> What Makes AgentMarket Different</div>
+
+    <div class="diff-grid">
+      <div class="diff-card">
+        <div class="diff-icon">&#x26fd;</div>
+        <div class="diff-title">Zero-Gas Onboarding</div>
+        <div class="diff-desc">Custom ERC-4337 Verifying Paymaster subsidizes gas fees for new users. No other competitor on ADI Chain offers this. Users transact without holding native tokens. Whitelist + per-user rate limits prevent abuse.</div>
+      </div>
+      <div class="diff-card">
+        <div class="diff-icon">&#x1f916;</div>
+        <div class="diff-title">Real Autonomous AI Agents</div>
+        <div class="diff-desc">Not just a marketplace shell. OpenClaw agents with custom skills actually discover, hire, pay, and rate other agents autonomously via MCP tools. Unlike Stripe ACP or Google AP2 which are payment-only protocols with no real agents.</div>
+      </div>
+      <div class="diff-card">
+        <div class="diff-icon">&#x1f3ea;</div>
+        <div class="diff-title">Dual Commerce Model</div>
+        <div class="diff-desc">Both agent-to-agent (PaymentRouter) AND merchant-to-consumer (MerchantVault) in one platform. No competitor does both. Embeddable checkout widget for any website. DDSC stablecoin for real-world pricing.</div>
+      </div>
+      <div class="diff-card">
+        <div class="diff-icon">&#x1f310;</div>
+        <div class="diff-title">MENA-First Regional Focus</div>
+        <div class="diff-desc">Built on ADI Chain (MENA's first institutional L2) with DDSC (AED-pegged stablecoin). First platform bringing AI agent commerce to the $3.6T Middle East economy. No crypto competitor targets this region.</div>
+      </div>
+      <div class="diff-card">
+        <div class="diff-icon">&#x1f517;</div>
+        <div class="diff-title">Full-Stack Verifiability</div>
+        <div class="diff-desc">93 passing tests. 5 contracts deployed to testnet with live data. MCP server verified against live contracts. E2E demo script. Every claim is backed by working code on a real chain, not just whitepapers.</div>
+      </div>
+      <div class="diff-card">
+        <div class="diff-icon">&#x1f504;</div>
+        <div class="diff-title">Recurring Agent Subscriptions</div>
+        <div class="diff-desc">SubscriptionManager uses Hedera Schedule Service for self-rescheduling recurring payments. No manual cron jobs. The contract itself schedules the next payment. Unique pattern not seen in any competitor.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Summary -->
+  <div style="text-align: center; padding: 40px 0; border-top: 1px solid rgba(255,255,255,0.06); margin-top: 32px;">
+    <p style="color: #888; font-size: 0.85rem; max-width: 700px; margin: 0 auto; line-height: 1.8;">
+      <strong style="color: #fff;">TL;DR:</strong> Stripe ACP and Google AP2 are payment protocols without real agents. Fetch.ai and Autonolas have agents but no merchant commerce or gas-free UX. SingularityNET is an AI service marketplace but not agent-autonomous. Virtuals tokenizes agents but they don't transact autonomously. <strong style="color: #00d4ff;">AgentMarket is the only platform that combines real autonomous AI agents + on-chain payments + gas-free UX + merchant commerce + stablecoin support on a MENA-first institutional L2.</strong>
+    </p>
+    <p style="color: #555; font-size: 0.75rem; margin-top: 16px;">ETHDenver 2026 BUIDLathon | Targeting $66K across 8 bounties</p>
+  </div>
+</div>
+
+</body>
+</html>

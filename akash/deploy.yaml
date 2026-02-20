@@ -1,0 +1,59 @@
+---
+version: "2.0"
+services:
+  agentmarket:
+    image: ghcr.io/zjuuu/openclaw-docker:openclaw-v2026.2.12@sha256:54078e1fc41c781a94f48846cf286f18d0632a4e49c69d78aee799ba938fffa0
+    env:
+      # REQUIRED: Change this to a strong password
+      - SETUP_PASSWORD=CHANGE_ME_TO_STRONG_PASSWORD
+      - OPENCLAW_CONFIG_PATH=/data/.openclaw/openclaw.json
+      # Agent keys (set these after deployment via setup UI or env)
+      - ANTHROPIC_API_KEY=
+      - COMMERCE_AGENT_KEY=
+      - MERCHANT_AGENT_KEY=
+      - ADI_RPC_URL=https://rpc.ab.testnet.adifoundation.ai/
+    expose:
+      - port: 8080
+        as: 80
+        to:
+          - global: true
+        http_options:
+          max_body_size: 104857600
+          read_timeout: 60000
+          send_timeout: 60000
+          next_cases:
+            - error
+            - timeout
+          next_tries: 3
+          next_timeout: 60000
+    params:
+      storage:
+        data:
+          mount: /data
+          readOnly: false
+profiles:
+  compute:
+    agentmarket:
+      resources:
+        cpu:
+          units: 3
+        memory:
+          size: 6Gi
+        storage:
+          - size: 5Gi
+          - name: data
+            size: 10Gi
+            attributes:
+              persistent: true
+              class: beta3
+  placement:
+    akash:
+      pricing:
+        agentmarket:
+          denom: uakt
+          amount: 1000
+deployment:
+  agentmarket:
+    akash:
+      profile: agentmarket
+      count: 1

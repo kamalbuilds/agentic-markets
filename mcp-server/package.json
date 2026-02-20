@@ -1,0 +1,23 @@
+{
+  "name": "openclaw-mcp-server",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": ["mcp", "openclaw", "ai-agents", "blockchain"],
+  "author": "",
+  "license": "ISC",
+  "description": "MCP server exposing OpenClaw smart contracts as AI agent tools",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@types/node": "^25.2.3",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "viem": "^2.45.3",
+    "zod": "^4.3.6"
+  }
+}

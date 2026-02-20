@@ -1,13 +1,105 @@
-// Contract addresses - deployed to ADI testnet (chain ID 99999)
-export const CONTRACTS = {
-  agentRegistry: "0x24fF5f6637A83CA7CA7B72b3Ad55275D669Ab7da" as `0x${string}`,
-  paymentRouter: "0x13e935CF88Fd5a967B621aDf0b331361E8aF76f3" as `0x${string}`,
-  merchantVault: "0x809039A3A6791bb734841E1B14405FF521BC6ddb" as `0x${string}`,
-  adiPaymaster: "0x804911e28D000695b6DD6955EEbF175EbB628A16" as `0x${string}`,
-  mockDDSC: "0x66bfba26d31e008dF0a6D40333e01bd1213CB109" as `0x${string}`,
-  subscriptionManager: "0x0000000000000000000000000000000000000000" as `0x${string}`,
-  entryPointV07: "0x0000000071727De22E5E9d8BAf0edAc6f37da032" as `0x${string}`,
-} as const;
+// ---------------------------------------------------------------------------
+// Multi-chain contract addresses
+// ---------------------------------------------------------------------------
+
+export interface ChainContracts {
+  agentRegistry: `0x${string}`;
+  paymentRouter: `0x${string}`;
+  merchantVault: `0x${string}`;
+  adiPaymaster: `0x${string}`;
+  mockDDSC: `0x${string}`;
+  subscriptionManager: `0x${string}`;
+  entryPointV07: `0x${string}`;
+}
+
+/** Per-chain contract addresses keyed by chainId */
+export const CONTRACT_ADDRESSES: Record<number, ChainContracts> = {
+  // ADI Chain Testnet
+  99999: {
+    agentRegistry: "0x24fF5f6637A83CA7CA7B72b3Ad55275D669Ab7da",
+    paymentRouter: "0x13e935CF88Fd5a967B621aDf0b331361E8aF76f3",
+    merchantVault: "0x809039A3A6791bb734841E1B14405FF521BC6ddb",
+    adiPaymaster: "0x804911e28D000695b6DD6955EEbF175EbB628A16",
+    mockDDSC: "0x66bfba26d31e008dF0a6D40333e01bd1213CB109",
+    subscriptionManager: "0xDB053ceb6CbD2BCb74A04278c6233a1bB22d2295",
+    entryPointV07: "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+  },
+  // Hedera Testnet
+  296: {
+    agentRegistry: "0xf53D927D6D19c7A67cF5126aA7EED0b4c0185850",
+    paymentRouter: "0x4F1cD87A50C281466eEE19f06eB54f1BBd9aC536",
+    merchantVault: "0x8D5940795eA47d43dEF13E3e8e59ECbdaA26Bc24",
+    adiPaymaster: "0x0000000000000000000000000000000000000000",
+    mockDDSC: "0xcD848BBfcE40332E93908D23A364C410177De876",
+    subscriptionManager: "0x0BD999211004837B6F8bbFF8437340cBA6e8688b",
+    entryPointV07: "0x0000000000000000000000000000000000000000",
+  },
+};
+
+/** Default chain ID used when wallet is not connected */
+export const DEFAULT_CHAIN_ID = 99999;
+
+/** Backward-compatible CONTRACTS constant (defaults to ADI Testnet) */
+export const CONTRACTS = CONTRACT_ADDRESSES[DEFAULT_CHAIN_ID];
+
+// ---------------------------------------------------------------------------
+// Chain metadata helpers
+// ---------------------------------------------------------------------------
+
+export interface ChainMeta {
+  name: string;
+  currencySymbol: string;
+  explorerUrl: string;
+  /** Whether native-value payments (msg.value) work on this chain */
+  supportsNativePayments: boolean;
+}
+
+export const CHAIN_META: Record<number, ChainMeta> = {
+  99999: {
+    name: "ADI Chain Testnet",
+    currencySymbol: "ADI",
+    explorerUrl: "https://explorer.ab.testnet.adifoundation.ai",
+    supportsNativePayments: true,
+  },
+  296: {
+    name: "Hedera Testnet",
+    currencySymbol: "HBAR",
+    explorerUrl: "https://hashscan.io/testnet",
+    supportsNativePayments: false,
+  },
+};
+
+export const DEFAULT_CHAIN_META: ChainMeta = CHAIN_META[DEFAULT_CHAIN_ID];
+
+/**
+ * Get contracts for a specific chain ID. Falls back to ADI Testnet.
+ */
+export function getContractsForChain(chainId: number | undefined): ChainContracts {
+  if (chainId && CONTRACT_ADDRESSES[chainId]) {
+    return CONTRACT_ADDRESSES[chainId];
+  }
+  return CONTRACT_ADDRESSES[DEFAULT_CHAIN_ID];
+}
+
+/**
+ * Get chain metadata for a specific chain ID. Falls back to ADI Testnet.
+ */
+export function getChainMeta(chainId: number | undefined): ChainMeta {
+  if (chainId && CHAIN_META[chainId]) {
+    return CHAIN_META[chainId];
+  }
+  return DEFAULT_CHAIN_META;
+}
+
+/**
+ * Check if connected chain is Hedera
+ */
+export function isHederaChain(chainId: number | undefined): boolean {
+  return chainId === 296;
+}
+
+/** List of supported chain IDs */
+export const SUPPORTED_CHAIN_IDS = Object.keys(CONTRACT_ADDRESSES).map(Number);
 
 export const AGENT_REGISTRY_ABI = [
   {
@@ -402,6 +494,25 @@ export const SUBSCRIPTION_MANAGER_ABI = [
   },
   {
     type: "function",
+    name: "subscribeToERC20",
+    inputs: [
+      { name: "agentId", type: "uint256" },
+      { name: "token", type: "address" },
+      { name: "amount", type: "uint256" },
+      { name: "interval", type: "uint256" },
+    ],
+    outputs: [{ name: "subscriptionId", type: "uint256" }],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "executeERC20Payment",
+    inputs: [{ name: "subscriptionId", type: "uint256" }],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
     name: "getSubscription",
     inputs: [{ name: "subscriptionId", type: "uint256" }],
     outputs: [
@@ -417,6 +528,7 @@ export const SUBSCRIPTION_MANAGER_ABI = [
           { name: "isActive", type: "bool" },
           { name: "totalPaid", type: "uint256" },
           { name: "paymentCount", type: "uint256" },
+          { name: "token", type: "address" },
         ],
       },
     ],
@@ -454,7 +566,7 @@ export const SUBSCRIPTION_MANAGER_ABI = [
     type: "function",
     name: "subscriptionScheduleIds",
     inputs: [{ name: "", type: "uint256" }],
-    outputs: [{ name: "", type: "bytes32" }],
+    outputs: [{ name: "", type: "address" }],
     stateMutability: "view",
   },
   {
