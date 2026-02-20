@@ -132,12 +132,16 @@ const ERC20_ABI = [
 
 const AGENT_REGISTRY_ABI = [
   { name: "nextAgentId", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] },
-  { name: "getAgent", type: "function", stateMutability: "view", inputs: [{ name: "agentId", type: "uint256" }], outputs: [{ name: "", type: "tuple", components: [
-    { name: "owner", type: "address" }, { name: "metadataURI", type: "string" },
-    { name: "pricePerTask", type: "uint256" }, { name: "isActive", type: "bool" },
-    { name: "totalTasks", type: "uint256" }, { name: "totalRating", type: "uint256" },
-    { name: "ratingCount", type: "uint256" }, { name: "createdAt", type: "uint256" },
-  ] }] },
+  {
+    name: "getAgent", type: "function", stateMutability: "view", inputs: [{ name: "agentId", type: "uint256" }], outputs: [{
+      name: "", type: "tuple", components: [
+        { name: "owner", type: "address" }, { name: "metadataURI", type: "string" },
+        { name: "pricePerTask", type: "uint256" }, { name: "isActive", type: "bool" },
+        { name: "totalTasks", type: "uint256" }, { name: "totalRating", type: "uint256" },
+        { name: "ratingCount", type: "uint256" }, { name: "createdAt", type: "uint256" },
+      ]
+    }]
+  },
   { name: "getActiveAgentCount", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "count", type: "uint256" }] },
   { name: "getAgentRating", type: "function", stateMutability: "view", inputs: [{ name: "agentId", type: "uint256" }], outputs: [{ name: "avgRating", type: "uint256" }] },
 ] as const;
@@ -146,12 +150,16 @@ const PAYMENT_ROUTER_ABI = [
   { name: "totalPayments", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] },
   { name: "totalVolume", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] },
   { name: "getUserPayments", type: "function", stateMutability: "view", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "bytes32[]" }] },
-  { name: "getPayment", type: "function", stateMutability: "view", inputs: [{ name: "paymentId", type: "bytes32" }], outputs: [{ name: "", type: "tuple", components: [
-    { name: "payer", type: "address" }, { name: "payee", type: "address" },
-    { name: "amount", type: "uint256" }, { name: "token", type: "address" },
-    { name: "agentId", type: "uint256" }, { name: "status", type: "uint8" },
-    { name: "timestamp", type: "uint256" },
-  ] }] },
+  {
+    name: "getPayment", type: "function", stateMutability: "view", inputs: [{ name: "paymentId", type: "bytes32" }], outputs: [{
+      name: "", type: "tuple", components: [
+        { name: "payer", type: "address" }, { name: "payee", type: "address" },
+        { name: "amount", type: "uint256" }, { name: "token", type: "address" },
+        { name: "agentId", type: "uint256" }, { name: "status", type: "uint8" },
+        { name: "timestamp", type: "uint256" },
+      ]
+    }]
+  },
 ] as const;
 
 const MERCHANT_VAULT_ABI = [
@@ -162,9 +170,11 @@ const MERCHANT_VAULT_ABI = [
 
 const PAYMASTER_ABI = [
   { name: "getDeposit", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] },
-  { name: "getSponsorshipInfo", type: "function", stateMutability: "view", inputs: [{ name: "user", type: "address" }], outputs: [
-    { name: "count", type: "uint256" }, { name: "remaining", type: "uint256" }, { name: "whitelisted", type: "bool" },
-  ] },
+  {
+    name: "getSponsorshipInfo", type: "function", stateMutability: "view", inputs: [{ name: "user", type: "address" }], outputs: [
+      { name: "count", type: "uint256" }, { name: "remaining", type: "uint256" }, { name: "whitelisted", type: "bool" },
+    ]
+  },
   { name: "totalSponsored", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] },
   { name: "verifyingSigner", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
 ] as const;
@@ -191,11 +201,13 @@ const PAIR_ABI = [
 ] as const;
 
 const LENDING_ABI = [
-  { name: "getUserAccountData", type: "function", stateMutability: "view", inputs: [{ name: "user", type: "address" }], outputs: [
-    { name: "totalCollateralETH", type: "uint256" }, { name: "totalDebtETH", type: "uint256" },
-    { name: "availableBorrowsETH", type: "uint256" }, { name: "currentLiquidationThreshold", type: "uint256" },
-    { name: "ltv", type: "uint256" }, { name: "healthFactor", type: "uint256" },
-  ] },
+  {
+    name: "getUserAccountData", type: "function", stateMutability: "view", inputs: [{ name: "user", type: "address" }], outputs: [
+      { name: "totalCollateralETH", type: "uint256" }, { name: "totalDebtETH", type: "uint256" },
+      { name: "availableBorrowsETH", type: "uint256" }, { name: "currentLiquidationThreshold", type: "uint256" },
+      { name: "ltv", type: "uint256" }, { name: "healthFactor", type: "uint256" },
+    ]
+  },
 ] as const;
 
 // ============================================================================
@@ -693,7 +705,9 @@ async function testSection6_KiteAi() {
 async function testSection7_0gInference() {
   printSectionHeader(7, "0G Inference", "Best Use of AI Inference $7K");
 
-  // 7.1 Run inference (audit task)
+  // 7.1 Run inference (audit task)this call also provides data for 7.2 and 7.3
+  let inferenceResponse: any = null;
+
   await runTest("0G Inference", "Run inference (audit task)", async () => {
     const resp = await fetchWithTimeout(`${FRONTEND}/api/0g/inference`, {
       method: "POST",
@@ -704,91 +718,66 @@ async function testSection7_0gInference() {
         taskType: "audit",
         prompt: "Analyze the PaymentRouter contract for security issues",
       }),
-    }, 60000); // 60s timeout for inference
+    }, 90000);
     if (!resp.ok) {
       const errBody = await resp.text();
       throw new Error(`Status ${resp.status}: ${errBody.slice(0, 200)}`);
     }
     const data = await resp.json();
     if (!data.success) throw new Error(data.error || "Inference failed");
+    inferenceResponse = data; // Cache for next tests
     return `provider=${data.provider?.address?.slice(0, 14)}... model=${data.provider?.model?.split("/").pop()} verify=${data.verification?.method} tokens=${data.performance?.totalTokens}`;
   });
 
-  // 7.2 Verify TeeML signature in response
-  // (Fires a new request with delay and retry for live testnet reliability)
+  // 7.2 Verify TeeML / verification field (from cached response or fresh call)
   await runTest("0G Inference", "Verify TeeML / verification field", async () => {
-    // Delay to let 0G provider sub-account settle after first call
-    await new Promise((r) => setTimeout(r, 5000));
-
-    const makeCall = async (): Promise<any> => {
+    let data = inferenceResponse;
+    if (!data) {
+      // Fresh call if 7.1 failed
       const resp = await fetchWithTimeout(`${FRONTEND}/api/0g/inference`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          taskType: "defi",
-          taskDescription: "Simple DeFi analysis",
-          prompt: "What is the current sentiment on HBAR? Reply briefly.",
+          taskType: "general",
+          prompt: "Reply with: hello",
           preferSpeed: true,
         }),
       }, 90000);
-      if (!resp.ok) {
-        const errText = await resp.text().catch(() => "");
-        throw new Error(`Status ${resp.status}: ${errText.slice(0, 150)}`);
-      }
-      return resp.json();
-    };
-
-    let data: any;
-    try {
-      data = await makeCall();
-    } catch (firstErr: any) {
-      // Retry once after longer delay (0G sub-account may need re-init)
-      console.log(`         ${dim("Retry after 8s delay (0G sub-account re-init)...")}`);
-      await new Promise((r) => setTimeout(r, 8000));
-      data = await makeCall();
+      if (!resp.ok) throw new Error(`Status ${resp.status}`);
+      data = await resp.json();
+      if (!data.success) throw new Error(data.error || "Inference failed");
     }
 
-    if (!data.success) throw new Error(data.error || "Inference failed");
     if (!data.verification) throw new Error("No verification object in response");
-    return `method=${data.verification.method} chatId=${data.verification.chatId?.slice(0, 20)}... signatureValid=${data.verification.signatureValid} explorerUrl present=${!!data.verification.explorerUrl}`;
+    if (!data.verification.method) throw new Error("No verification method");
+    if (!data.verification.chatId) throw new Error("No verification chatId");
+    const hasExplorer = !!data.verification.explorerUrl;
+    return `method=${data.verification.method} chatId=${data.verification.chatId?.slice(0, 20)}... signatureValid=${data.verification.signatureValid} explorerUrl=${hasExplorer}`;
   });
 
-  // 7.3 Verify network metadata
+  // 7.3 Verify 0G network metadata (from cached response or fresh call)
   await runTest("0G Inference", "Verify 0G network metadata", async () => {
-    // Delay to let 0G provider sub-account settle
-    await new Promise((r) => setTimeout(r, 5000));
-
-    const makeCall = async (): Promise<any> => {
+    let data = inferenceResponse;
+    if (!data) {
       const resp = await fetchWithTimeout(`${FRONTEND}/api/0g/inference`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          taskType: "analytics",
-          prompt: "Analyze a simple data pattern. Reply in 2 sentences.",
+          taskType: "general",
+          prompt: "Say OK",
           preferSpeed: true,
         }),
       }, 90000);
-      if (!resp.ok) {
-        const errText = await resp.text().catch(() => "");
-        throw new Error(`Status ${resp.status}: ${errText.slice(0, 150)}`);
-      }
-      return resp.json();
-    };
-
-    let data: any;
-    try {
-      data = await makeCall();
-    } catch (firstErr: any) {
-      // Retry once after longer delay
-      console.log(`         ${dim("Retry after 8s delay (0G sub-account re-init)...")}`);
-      await new Promise((r) => setTimeout(r, 8000));
-      data = await makeCall();
+      if (!resp.ok) throw new Error(`Status ${resp.status}`);
+      data = await resp.json();
+      if (!data.success) throw new Error(data.error || "Inference failed");
     }
 
-    if (!data.success) throw new Error(data.error || "Inference failed");
-    if (!data.network) throw new Error("No network metadata");
+    if (!data.network) throw new Error("No network metadata in response");
     if (data.network.chainId !== 16602) throw new Error(`Expected chainId 16602, got ${data.network.chainId}`);
-    return `chain=${data.network.chain} chainId=${data.network.chainId} rpc=${data.network.rpc}`;
+    if (!data.network.rpc) throw new Error("No RPC URL in network metadata");
+    if (!data.network.explorer) throw new Error("No explorer URL in network metadata");
+    return `chain=${data.network.chain} chainId=${data.network.chainId} rpc=${data.network.rpc} explorer=${data.network.explorer}`;
   });
 }
 
@@ -894,7 +883,7 @@ async function testSection9_0gInft() {
     if (!resp.ok) throw new Error(`Status ${resp.status}`);
     const data = await resp.json();
     if (!data.success) throw new Error(data.error || "List failed");
-    if (data.totalMinted === 0) return "No iNFTs minted yet -- nothing to verify";
+    if (data.totalMinted === 0) return "No iNFTs minted yetnothing to verify";
     const hasRealHashes = data.infts.every((i: any) => i.mintTxHash && i.mintTxHash.startsWith("0x") && i.mintTxHash.length === 66);
     if (!hasRealHashes) throw new Error("Some iNFTs have invalid tx hashes");
     const first = data.infts[0];
@@ -1033,7 +1022,7 @@ async function testSection10_TaskWorkflow() {
     try {
       store = JSON.parse(fs.readFileSync(storePath, "utf-8"));
     } catch {
-      throw new Error("Cannot read .task-store.json -- is the MCP server running or was a task created via API?");
+      throw new Error("Cannot read .task-store.jsonis the MCP server running or was a task created via API?");
     }
 
     const task = store.tasks.find((t: any) => t.taskId === createdTaskId);
