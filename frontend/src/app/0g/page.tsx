@@ -926,48 +926,6 @@ export default function OGPage() {
         </p>
       </div>
 
-      {/* Track Overview Cards */}
-      <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {[
-          {
-            icon: Brain,
-            title: "DeFAI Track",
-            prize: "$7K",
-            color: "indigo",
-            desc: "Structured AI decisions for agent hiring with risk guardrails and payment routing",
-          },
-          {
-            icon: Cpu,
-            title: "AI Compute Track",
-            prize: "$7K",
-            color: "cyan",
-            desc: "Decentralized inference via 0G Compute with verifiable proofs (TEEML/ZKML/OPML)",
-          },
-          {
-            icon: Image,
-            title: "iNFT Track",
-            prize: "$7K",
-            color: "purple",
-            desc: "Mint agents as ERC-7857 iNFTs with encrypted intelligence and usage authorization",
-          },
-        ].map(({ icon: Icon, title, prize, color, desc }) => (
-          <div
-            key={title}
-            className={`rounded-xl border border-${color}-500/20 bg-${color}-500/5 p-4 space-y-2`}
-          >
-            <div className="flex items-center justify-between">
-              <div className={`flex items-center gap-2 text-${color}-400`}>
-                <Icon className="size-5" />
-                <span className="text-sm font-semibold">{title}</span>
-              </div>
-              <Badge variant="outline" className={`border-${color}-500/30 text-${color}-400 text-xs`}>
-                {prize}
-              </Badge>
-            </div>
-            <p className="text-[11px] text-zinc-400">{desc}</p>
-          </div>
-        ))}
-      </div>
 
       {/* Main Panels */}
       <div className="space-y-6">

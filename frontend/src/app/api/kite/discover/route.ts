@@ -87,19 +87,29 @@ async function fetchAgentsFromRegistry(category?: string | null) {
           ? Number(agent.totalRating) / Number(agent.ratingCount)
           : 0;
 
-      // Derive a category from metadataURI or default to "General"
-      let agentCategory = "General";
-      const uri = agent.metadataURI.toLowerCase();
-      if (uri.includes("defi") || uri.includes("swap") || uri.includes("yield"))
-        agentCategory = "DeFi";
-      else if (uri.includes("security") || uri.includes("audit"))
-        agentCategory = "Security";
-      else if (uri.includes("analytics") || uri.includes("data") || uri.includes("oracle"))
-        agentCategory = "Analytics";
-      else if (uri.includes("content") || uri.includes("social"))
-        agentCategory = "Content";
-      else if (uri.includes("nft") || uri.includes("curator"))
-        agentCategory = "NFT";
+      // Try to parse metadataURI as JSON to extract structured fields
+      let parsedMeta: { name?: string; description?: string; category?: string; capabilities?: string[] } = {};
+      try {
+        parsedMeta = JSON.parse(agent.metadataURI);
+      } catch {
+        // Not JSON — use string matching below
+      }
+
+      // Derive category from parsed metadata or string matching
+      let agentCategory = parsedMeta.category || "General";
+      if (agentCategory === "General") {
+        const uri = agent.metadataURI.toLowerCase();
+        if (uri.includes("defi") || uri.includes("swap") || uri.includes("yield"))
+          agentCategory = "DeFi";
+        else if (uri.includes("security") || uri.includes("audit"))
+          agentCategory = "Security";
+        else if (uri.includes("analytics") || uri.includes("data") || uri.includes("oracle"))
+          agentCategory = "Analytics";
+        else if (uri.includes("content") || uri.includes("social"))
+          agentCategory = "Content";
+        else if (uri.includes("nft") || uri.includes("curator"))
+          agentCategory = "NFT";
+      }
 
       if (
         category &&
@@ -108,12 +118,18 @@ async function fetchAgentsFromRegistry(category?: string | null) {
         continue;
       }
 
+      // Derive Kite Passport DID from owner address using BIP-32 derivation path convention
+      const kitePassportDID = `did:kite:${agent.owner.slice(0, 6)}${agent.owner.slice(-4)}:agent-${i}`;
+
       agents.push({
         id: `adi-agent-${i}`,
         registryId: i,
+        name: parsedMeta.name || undefined,
         owner: agent.owner,
         metadataURI: agent.metadataURI,
+        description: parsedMeta.description || undefined,
         category: agentCategory,
+        capabilities: parsedMeta.capabilities || [],
         pricePerTask: agent.pricePerTask.toString(),
         pricePerTaskFormatted: `${priceEth} ADI`,
         reputation: Math.round(avgRating * 10) / 10,
@@ -121,7 +137,7 @@ async function fetchAgentsFromRegistry(category?: string | null) {
         ratingCount: Number(agent.ratingCount),
         isActive: agent.isActive,
         createdAt: new Date(Number(agent.createdAt) * 1000).toISOString(),
-        did: `did:adi:registry/${REGISTRY_ADDRESS}/agent/${i}`,
+        did: kitePassportDID,
         status: "active",
       });
     } catch {

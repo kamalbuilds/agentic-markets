@@ -165,6 +165,7 @@ export async function GET(request: NextRequest) {
     }
 
     const reputation = computeReputation(agentData);
+    const singleKiteDID = `did:kite:${agentData.owner.slice(0, 6)}${agentData.owner.slice(-4)}:agent-${registryId}`;
 
     return NextResponse.json(
       {
@@ -175,7 +176,7 @@ export async function GET(request: NextRequest) {
         isActive: agentData.isActive,
         pricePerTask: agentData.pricePerTask.toString(),
         pricePerTaskFormatted: `${formatEther(agentData.pricePerTask)} ADI`,
-        did: `did:adi:registry/${REGISTRY_ADDRESS}/agent/${registryId}`,
+        did: singleKiteDID,
         identityTier: "Agent",
         reputation,
         createdAt: new Date(Number(agentData.createdAt) * 1000).toISOString(),
@@ -223,17 +224,31 @@ export async function GET(request: NextRequest) {
 
       const reputation = computeReputation(agentData);
 
+      // Parse metadataURI for agent name
+      let agentName: string | undefined;
+      try {
+        const meta = JSON.parse(agentData.metadataURI);
+        agentName = meta.name;
+      } catch {
+        // Not JSON
+      }
+
+      const kitePassportDID = `did:kite:${agentData.owner.slice(0, 6)}${agentData.owner.slice(-4)}:agent-${i}`;
+
       allReputations.push({
         agentId: `adi-agent-${i}`,
         registryId: i,
+        name: agentName,
         owner: agentData.owner,
         metadataURI: agentData.metadataURI,
         isActive: agentData.isActive,
-        did: `did:adi:registry/${REGISTRY_ADDRESS}/agent/${i}`,
+        did: kitePassportDID,
         identityTier: "Agent" as const,
+        standingIntentActive: agentData.isActive && reputation.totalTransactions > 0,
         score: reputation.score,
         totalTransactions: reputation.totalTransactions,
         ratingCount: reputation.ratingCount,
+        successRate: reputation.successRate,
         dimensions: reputation.dimensions,
       });
     } catch {

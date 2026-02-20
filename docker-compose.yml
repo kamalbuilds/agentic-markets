@@ -1,4 +1,6 @@
-version: '3.8'
+networks:
+  agentmarket:
+    driver: bridge
 
 services:
   mcp-server:
@@ -9,6 +11,8 @@ services:
     volumes:
       - mcp-dist:/app
     command: ["echo", "MCP server built"]
+    networks:
+      - agentmarket
 
   openclaw:
     image: ghcr.io/zjuuu/openclaw-docker:openclaw-v2026.2.12
@@ -24,6 +28,8 @@ services:
       - MERCHANT_AGENT_KEY=${MERCHANT_AGENT_KEY}
       - HEDERA_PRIVATE_KEY=${HEDERA_PRIVATE_KEY:-}
       - HEDERA_ACCOUNT_ID=${HEDERA_ACCOUNT_ID:-}
+      - OG_PRIVATE_KEY=${OG_PRIVATE_KEY:-}
+      - FRONTEND_URL=http://frontend:3000
     volumes:
       - ./openclaw/openclaw.json:/data/openclaw.json:ro
       - ./openclaw/skills:/data/skills:ro
@@ -38,6 +44,8 @@ services:
         condition: service_completed_successfully
       frontend:
         condition: service_started
+    networks:
+      - agentmarket
 
   frontend:
     build:
@@ -56,6 +64,8 @@ services:
     ports:
       - "3000:3000"
     restart: unless-stopped
+    networks:
+      - agentmarket
 
 volumes:
   openclaw-data:

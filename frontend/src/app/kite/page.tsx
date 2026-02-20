@@ -52,6 +52,7 @@ interface KiteAgent {
 
 interface AgentReputation {
   agentId: string;
+  name?: string;
   registryId?: number;
   owner?: string;
   metadataURI?: string;
@@ -119,6 +120,36 @@ function formatUSDT(wei: string): string {
   } catch {
     return "0";
   }
+}
+
+function getAgentName(agent: { name?: string; metadataURI?: string; id: string }): string {
+  if (agent.name) return agent.name;
+  // Try to parse metadataURI as JSON
+  if (agent.metadataURI) {
+    try {
+      const parsed = JSON.parse(agent.metadataURI);
+      if (parsed.name) return parsed.name;
+    } catch {
+      // Not JSON — use as-is if it's short enough
+      if (agent.metadataURI.length < 40 && !agent.metadataURI.startsWith("{")) {
+        return agent.metadataURI;
+      }
+    }
+  }
+  return agent.id;
+}
+
+function getAgentDescription(agent: { description?: string; metadataURI?: string }): string {
+  if (agent.description) return agent.description;
+  if (agent.metadataURI) {
+    try {
+      const parsed = JSON.parse(agent.metadataURI);
+      if (parsed.description) return parsed.description;
+    } catch {
+      // Not JSON
+    }
+  }
+  return "On-chain registered AI agent";
 }
 
 // ---------- page ----------
@@ -333,7 +364,7 @@ export default function KiteAIPage() {
                         </div>
                         <div>
                           <CardTitle className="text-base text-white">
-                            {agent.name ?? agent.metadataURI ?? agent.id}
+                            {getAgentName(agent)}
                           </CardTitle>
                           <Badge
                             variant="outline"
@@ -353,7 +384,7 @@ export default function KiteAIPage() {
 
                   <CardContent className="flex flex-col gap-4">
                     <CardDescription className="line-clamp-2 text-zinc-400">
-                      {agent.description ?? agent.metadataURI ?? "On-chain agent"}
+                      {getAgentDescription(agent)}
                     </CardDescription>
 
                     <div className="flex flex-wrap gap-1.5">
@@ -822,7 +853,7 @@ export default function KiteAIPage() {
                           </div>
                           <div>
                             <p className="text-sm font-semibold text-white">
-                              {agent?.name ?? rep.agentId}
+                              {rep.name ?? agent?.name ?? getAgentName(agent ?? { id: rep.agentId, metadataURI: rep.metadataURI })}
                             </p>
                             <p className="font-mono text-[10px] text-zinc-500">{rep.did}</p>
                           </div>
@@ -870,6 +901,30 @@ export default function KiteAIPage() {
                           </p>
                         </div>
                       </div>
+
+                      {/* Reputation Dimensions */}
+                      {rep.dimensions && (
+                        <div className="mt-4 space-y-2">
+                          <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Reputation Dimensions</p>
+                          {(["reliability", "quality", "speed", "value"] as const).map((dim) => (
+                            <div key={dim} className="flex items-center gap-3">
+                              <span className="w-20 text-xs text-zinc-400 capitalize">{dim}</span>
+                              <div className="flex-1 h-2 rounded-full bg-zinc-800 overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all ${
+                                    dim === "reliability" ? "bg-green-500" :
+                                    dim === "quality" ? "bg-blue-500" :
+                                    dim === "speed" ? "bg-yellow-500" :
+                                    "bg-purple-500"
+                                  }`}
+                                  style={{ width: `${Math.min(rep.dimensions![dim], 100)}%` }}
+                                />
+                              </div>
+                              <span className="w-10 text-right text-xs text-zinc-400">{rep.dimensions![dim].toFixed(0)}%</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 );
