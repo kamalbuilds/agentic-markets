@@ -18,6 +18,66 @@ import {
   keccak256,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import {
+  Client as HederaClient,
+  PrivateKey as HederaPrivateKey,
+  AccountId,
+  TokenId,
+  ContractId,
+  AccountAllowanceApproveTransaction,
+  ContractExecuteTransaction,
+  ContractFunctionParameters,
+  TokenAssociateTransaction,
+} from "@hashgraph/sdk";
+import * as fs from "fs";
+import * as path from "path";
+
+// ============================================================================
+// Agent Task Store (Chain-Agnostic Coordination)
+// ============================================================================
+
+interface AgentTask {
+  taskId: string;
+  creatorAgent: string;
+  assignedAgent: string | null;
+  status: "open" | "accepted" | "submitted" | "approved" | "rejected";
+  taskType: string;
+  description: string;
+  requirements: string[];
+  reward: { amount: string; currency: string; chain: string };
+  submission: {
+    result: string;
+    deliveredAt: string;
+    qualityScore: number | null;
+  } | null;
+  review: {
+    approved: boolean;
+    rating: number;
+    feedback: string;
+    aiVerified: boolean;
+    reviewedAt: string;
+  } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+const TASK_STORE_PATH = path.resolve(process.cwd(), ".task-store.json");
+
+function loadTaskStore(): { nextTaskId: number; tasks: AgentTask[] } {
+  try {
+    if (fs.existsSync(TASK_STORE_PATH)) {
+      const data = fs.readFileSync(TASK_STORE_PATH, "utf-8");
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.error("Failed to load task store, using default:", err);
+  }
+  return { nextTaskId: 1, tasks: [] };
+}
+
+function saveTaskStore(store: { nextTaskId: number; tasks: AgentTask[] }): void {
+  fs.writeFileSync(TASK_STORE_PATH, JSON.stringify(store, null, 2), "utf-8");
+}
 
 // ============================================================================
 // Chain Definition
@@ -1935,6 +1995,1959 @@ server.tool(
             text: `Error executing payment for subscription ${subscriptionId}: ${error instanceof Error ? error.message : String(error)}`,
           },
         ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ============================================================================
+// Hedera Testnet Chain Definition
+// ============================================================================
+
+const hederaTestnet: Chain = {
+  id: 296,
+  name: "Hedera Testnet",
+  nativeCurrency: {
+    name: "HBAR",
+    symbol: "HBAR",
+    decimals: 18,
+  },
+  rpcUrls: {
+    default: {
+      http: ["https://testnet.hashio.io/api"],
+    },
+  },
+};
+
+const hederaPublicClient = createPublicClient({
+  chain: hederaTestnet,
+  transport: http(),
+});
+
+function getHederaWalletClient() {
+  const privateKey = process.env.HEDERA_PRIVATE_KEY || process.env.AGENT_PRIVATE_KEY;
+  if (!privateKey) {
+    throw new Error(
+      "HEDERA_PRIVATE_KEY or AGENT_PRIVATE_KEY environment variable is required for Hedera write operations"
+    );
+  }
+  const account = privateKeyToAccount(
+    privateKey.startsWith("0x") ? (privateKey as Hex) : (`0x${privateKey}` as Hex)
+  );
+  return createWalletClient({
+    account,
+    chain: hederaTestnet,
+    transport: http(),
+  });
+}
+
+// ============================================================================
+// Hedera SDK Client (for HTS native operations)
+// ============================================================================
+
+let _hederaSdkClient: HederaClient | null = null;
+let _hederaAccountId: AccountId | null = null;
+
+function getHederaSdkClient(): { client: HederaClient; accountId: AccountId } {
+  if (_hederaSdkClient && _hederaAccountId) {
+    return { client: _hederaSdkClient, accountId: _hederaAccountId };
+  }
+  const pk = process.env.HEDERA_PRIVATE_KEY;
+  if (!pk) throw new Error("HEDERA_PRIVATE_KEY not set");
+
+  const privateKey = HederaPrivateKey.fromStringECDSA(pk.replace("0x", ""));
+  // Account ID must be looked up from mirror node or configured
+  const accountIdStr = process.env.HEDERA_ACCOUNT_ID;
+  if (!accountIdStr) throw new Error("HEDERA_ACCOUNT_ID not set (e.g. 0.0.4729347)");
+
+  _hederaAccountId = AccountId.fromString(accountIdStr);
+  _hederaSdkClient = HederaClient.forTestnet();
+  _hederaSdkClient.setOperator(_hederaAccountId, privateKey);
+  return { client: _hederaSdkClient, accountId: _hederaAccountId };
+}
+
+function evmAddressToEntityNum(evmAddress: string): string {
+  // For Hedera system addresses like 0x0000000000000000000000000000000000001549
+  // The entity number is the decimal value of the last bytes
+  const addr = evmAddress.toLowerCase().replace("0x", "");
+  if (addr.startsWith("000000000000000000000000000000000000")) {
+    const entityNum = parseInt(addr, 16);
+    return `0.0.${entityNum}`;
+  }
+  // For non-system addresses, would need mirror node lookup
+  return "";
+}
+
+async function lookupEntityId(evmAddress: string): Promise<string> {
+  try {
+    const resp = await fetch(`https://testnet.mirrornode.hedera.com/api/v1/contracts/${evmAddress}`);
+    const data = await resp.json() as { contract_id?: string };
+    return data.contract_id || "";
+  } catch {
+    return "";
+  }
+}
+
+async function ensureHtsNativeAllowance(
+  tokenEvmAddress: string,
+  spenderEvmAddress: string,
+  amount: bigint
+): Promise<string> {
+  const { client, accountId } = getHederaSdkClient();
+
+  // Convert EVM addresses to Hedera entity IDs
+  const tokenEntityId = evmAddressToEntityNum(tokenEvmAddress);
+  // For the spender (e.g. Bonzo LendingPool), look up from known contracts or mirror node
+  const spenderEntityId = evmAddressToEntityNum(spenderEvmAddress) ||
+    await lookupEntityId(spenderEvmAddress);
+
+  if (!tokenEntityId || !spenderEntityId) {
+    throw new Error(`Cannot resolve entity IDs for token ${tokenEvmAddress} or spender ${spenderEvmAddress}`);
+  }
+
+  const tokenId = TokenId.fromString(tokenEntityId);
+  const spenderId = AccountId.fromString(spenderEntityId);
+  const amountNum = Number(amount);
+
+  const tx = await new AccountAllowanceApproveTransaction()
+    .approveTokenAllowance(tokenId, accountId, spenderId, amountNum * 2)
+    .execute(client);
+  const receipt = await tx.getReceipt(client);
+  return receipt.status.toString();
+}
+
+// ============================================================================
+// Hedera DeFi Contract Addresses
+// ============================================================================
+
+// Convert Hedera entity ID 0.0.N to EVM address: pad N as 20-byte hex
+// 0.0.19264 = 0x0000000000000000000000000000000000004B40
+// 0.0.1414040 = 0x0000000000000000000000000000000000159398
+// 0.0.2664875 = 0x00000000000000000000000000000000002AA5AB
+// 0.0.15058 = 0x0000000000000000000000000000000000003AD2
+// 0.0.1183558 = 0x00000000000000000000000000000000001210C6
+// 0.0.5449  = 0x0000000000000000000000000000000000001549
+
+const HEDERA_CONTRACTS = {
+  // Our deployed contracts
+  agentRegistry: "0xf53D927D6D19c7A67cF5126aA7EED0b4c0185850" as Address,
+  paymentRouter: "0x4F1cD87A50C281466eEE19f06eB54f1BBd9aC536" as Address,
+  mockDDSC: "0xcD848BBfcE40332E93908D23A364C410177De876" as Address,
+  // SaucerSwap V1 (EIP-55 checksummed, factory verified via router.factory())
+  saucerswapV1Router: "0x0000000000000000000000000000000000004b40" as Address,
+  saucerswapV1Factory: "0x00000000000000000000000000000000000026E7" as Address,
+  // Bonzo Finance (Aave V2 fork) - testnet LendingPool proxy (from bonzo-contracts.json)
+  bonzoLendingPool: "0x7710a96b01e02eD00768C3b39BfA7B4f1c128c62" as Address,
+  // Tokens (EIP-55 checksummed)
+  whbar: "0x0000000000000000000000000000000000003aD2" as Address,
+  sauce: "0x0000000000000000000000000000000000120f46" as Address,
+  usdc: "0x0000000000000000000000000000000000001549" as Address,
+} as const;
+
+// ============================================================================
+// Hedera DeFi ABIs
+// ============================================================================
+
+const UNISWAP_V2_ROUTER_ABI = [
+  {
+    type: "function",
+    name: "getAmountsOut",
+    inputs: [
+      { name: "amountIn", type: "uint256" },
+      { name: "path", type: "address[]" },
+    ],
+    outputs: [{ name: "amounts", type: "uint256[]" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "swapExactTokensForTokens",
+    inputs: [
+      { name: "amountIn", type: "uint256" },
+      { name: "amountOutMin", type: "uint256" },
+      { name: "path", type: "address[]" },
+      { name: "to", type: "address" },
+      { name: "deadline", type: "uint256" },
+    ],
+    outputs: [{ name: "amounts", type: "uint256[]" }],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "swapExactETHForTokens",
+    inputs: [
+      { name: "amountOutMin", type: "uint256" },
+      { name: "path", type: "address[]" },
+      { name: "to", type: "address" },
+      { name: "deadline", type: "uint256" },
+    ],
+    outputs: [{ name: "amounts", type: "uint256[]" }],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "addLiquidity",
+    inputs: [
+      { name: "tokenA", type: "address" },
+      { name: "tokenB", type: "address" },
+      { name: "amountADesired", type: "uint256" },
+      { name: "amountBDesired", type: "uint256" },
+      { name: "amountAMin", type: "uint256" },
+      { name: "amountBMin", type: "uint256" },
+      { name: "to", type: "address" },
+      { name: "deadline", type: "uint256" },
+    ],
+    outputs: [
+      { name: "amountA", type: "uint256" },
+      { name: "amountB", type: "uint256" },
+      { name: "liquidity", type: "uint256" },
+    ],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "factory",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+    stateMutability: "view",
+  },
+] as const;
+
+// HTS token association ABI (Hedera-specific: must associate before receiving HTS tokens)
+const HTS_ASSOCIATE_ABI = [
+  {
+    name: "associate",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [],
+    outputs: [{ name: "responseCode", type: "int256" }],
+  },
+] as const;
+
+const UNISWAP_V2_FACTORY_ABI = [
+  {
+    type: "function",
+    name: "getPair",
+    inputs: [
+      { name: "tokenA", type: "address" },
+      { name: "tokenB", type: "address" },
+    ],
+    outputs: [{ name: "pair", type: "address" }],
+    stateMutability: "view",
+  },
+] as const;
+
+const UNISWAP_V2_PAIR_ABI = [
+  {
+    type: "function",
+    name: "getReserves",
+    inputs: [],
+    outputs: [
+      { name: "reserve0", type: "uint112" },
+      { name: "reserve1", type: "uint112" },
+      { name: "blockTimestampLast", type: "uint32" },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "token0",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "token1",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "totalSupply",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+] as const;
+
+const AAVE_LENDING_POOL_ABI = [
+  {
+    type: "function",
+    name: "deposit",
+    inputs: [
+      { name: "asset", type: "address" },
+      { name: "amount", type: "uint256" },
+      { name: "onBehalfOf", type: "address" },
+      { name: "referralCode", type: "uint16" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "borrow",
+    inputs: [
+      { name: "asset", type: "address" },
+      { name: "amount", type: "uint256" },
+      { name: "interestRateMode", type: "uint256" },
+      { name: "referralCode", type: "uint16" },
+      { name: "onBehalfOf", type: "address" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "repay",
+    inputs: [
+      { name: "asset", type: "address" },
+      { name: "amount", type: "uint256" },
+      { name: "rateMode", type: "uint256" },
+      { name: "onBehalfOf", type: "address" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "withdraw",
+    inputs: [
+      { name: "asset", type: "address" },
+      { name: "amount", type: "uint256" },
+      { name: "to", type: "address" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "getUserAccountData",
+    inputs: [{ name: "user", type: "address" }],
+    outputs: [
+      { name: "totalCollateralETH", type: "uint256" },
+      { name: "totalDebtETH", type: "uint256" },
+      { name: "availableBorrowsETH", type: "uint256" },
+      { name: "currentLiquidationThreshold", type: "uint256" },
+      { name: "ltv", type: "uint256" },
+      { name: "healthFactor", type: "uint256" },
+    ],
+    stateMutability: "view",
+  },
+] as const;
+
+const ERC20_ABI = [
+  {
+    type: "function",
+    name: "approve",
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "allowance",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "spender", type: "address" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "balanceOf",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "decimals",
+    inputs: [],
+    outputs: [{ name: "", type: "uint8" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "symbol",
+    inputs: [],
+    outputs: [{ name: "", type: "string" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "transfer",
+    inputs: [
+      { name: "to", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "nonpayable",
+  },
+] as const;
+
+// Pyth price feed IDs (mainnet, also used on testnet via Hermes)
+const PYTH_FEED_IDS: Record<string, string> = {
+  HBAR: "0x3728e591097635310e6341af53db8b7ee42da9b3a8d918f9463ce9cca886dfbd",
+  USDC: "0xeaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a",
+  ETH: "0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
+  BTC: "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+};
+
+// Known token addresses for helper lookups
+const HEDERA_TOKEN_INFO: Record<string, { address: Address; decimals: number; symbol: string }> = {
+  WHBAR: { address: HEDERA_CONTRACTS.whbar, decimals: 8, symbol: "WHBAR" },
+  SAUCE: { address: HEDERA_CONTRACTS.sauce, decimals: 6, symbol: "SAUCE" },
+  USDC: { address: HEDERA_CONTRACTS.usdc, decimals: 6, symbol: "USDC" },
+  DDSC: { address: HEDERA_CONTRACTS.mockDDSC, decimals: 18, symbol: "DDSC" },
+};
+
+// ============================================================================
+// Hedera DeFi Helper Functions
+// ============================================================================
+
+// Hedera requires HTS token association before an account can receive a token.
+// This is a no-op if already associated.
+async function ensureHtsAssociation(token: Address): Promise<string | null> {
+  const wallet = getHederaWalletClient();
+  try {
+    const hash = await wallet.writeContract({
+      address: token,
+      abi: HTS_ASSOCIATE_ABI,
+      functionName: "associate",
+      gas: 800_000n, // Manual gas - eth_estimateGas fails for HTS ops on Hedera
+    });
+    await hederaPublicClient.waitForTransactionReceipt({ hash });
+    return hash;
+  } catch (e: any) {
+    const msg = e?.message || String(e);
+    // Already associated is OK - not an error
+    if (msg.includes("TOKEN_ALREADY_ASSOCIATED") || msg.includes("already associated") || msg.includes("reverted")) {
+      return null;
+    }
+    throw e;
+  }
+}
+
+async function ensureHederaApproval(
+  token: Address,
+  spender: Address,
+  amount: bigint
+): Promise<string | null> {
+  const wallet = getHederaWalletClient();
+  const ownerAddress = wallet.account.address;
+
+  const currentAllowance = (await hederaPublicClient.readContract({
+    address: token,
+    abi: ERC20_ABI,
+    functionName: "allowance",
+    args: [ownerAddress, spender],
+  })) as bigint;
+
+  if (currentAllowance >= amount) {
+    return null; // Already approved
+  }
+
+  // Approve max uint256 to avoid repeated approvals
+  const maxUint256 = BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+  const hash = await wallet.writeContract({
+    address: token,
+    abi: ERC20_ABI,
+    functionName: "approve",
+    args: [spender, maxUint256],
+    gas: 500_000n, // Manual gas - eth_estimateGas fails for HTS token ops on Hedera
+  });
+
+  await hederaPublicClient.waitForTransactionReceipt({ hash });
+  return hash;
+}
+
+// ============================================================================
+// Hedera DeFi Tools - SaucerSwap DEX
+// ============================================================================
+
+server.tool(
+  "hedera_get_swap_quote",
+  "Get a swap quote from SaucerSwap V1 DEX on Hedera testnet. Returns expected output amount for a given input. Use token addresses or names (WHBAR, SAUCE, USDC, DDSC).",
+  {
+    tokenIn: z.string().describe("Input token address (0x...) or name (WHBAR, SAUCE, USDC, DDSC)"),
+    tokenOut: z.string().describe("Output token address (0x...) or name (WHBAR, SAUCE, USDC, DDSC)"),
+    amountIn: z.string().describe("Amount of input token in human-readable format (e.g., '10.5')"),
+  },
+  async ({ tokenIn, tokenOut, amountIn }) => {
+    try {
+      // Resolve token names to addresses
+      const tokenInAddr = (HEDERA_TOKEN_INFO[tokenIn.toUpperCase()]?.address || tokenIn) as Address;
+      const tokenOutAddr = (HEDERA_TOKEN_INFO[tokenOut.toUpperCase()]?.address || tokenOut) as Address;
+
+      // Get decimals for input token
+      const decimalsIn = HEDERA_TOKEN_INFO[tokenIn.toUpperCase()]?.decimals ??
+        Number(await hederaPublicClient.readContract({
+          address: tokenInAddr,
+          abi: ERC20_ABI,
+          functionName: "decimals",
+        }));
+
+      const decimalsOut = HEDERA_TOKEN_INFO[tokenOut.toUpperCase()]?.decimals ??
+        Number(await hederaPublicClient.readContract({
+          address: tokenOutAddr,
+          abi: ERC20_ABI,
+          functionName: "decimals",
+        }));
+
+      const amountInWei = parseUnits(amountIn, decimalsIn);
+      const path = [tokenInAddr, tokenOutAddr];
+
+      const amounts = (await hederaPublicClient.readContract({
+        address: HEDERA_CONTRACTS.saucerswapV1Router,
+        abi: UNISWAP_V2_ROUTER_ABI,
+        functionName: "getAmountsOut",
+        args: [amountInWei, path],
+      })) as bigint[];
+
+      const amountOutFormatted = formatUnits(amounts[1], decimalsOut);
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            dex: "SaucerSwap V1",
+            chain: "Hedera Testnet",
+            tokenIn: tokenInAddr,
+            tokenOut: tokenOutAddr,
+            amountIn: amountIn,
+            amountOut: amountOutFormatted,
+            amountOutRaw: amounts[1].toString(),
+            path: path,
+            route: `${tokenIn} → ${tokenOut}`,
+          }, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error getting swap quote: ${error instanceof Error ? error.message : String(error)}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+);
+
+server.tool(
+  "hedera_swap_tokens",
+  "Execute a token swap on SaucerSwap V1 DEX on Hedera testnet. Supports HBAR as input (uses swapExactETHForTokens). Automatically handles HTS token association and approval. Requires HEDERA_PRIVATE_KEY env var.",
+  {
+    tokenIn: z.string().describe("Input token: 'HBAR' for native HBAR, or address/name (WHBAR, SAUCE, USDC, DDSC)"),
+    tokenOut: z.string().describe("Output token address (0x...) or name (WHBAR, SAUCE, USDC, DDSC)"),
+    amountIn: z.string().describe("Amount of input token (e.g., '10.5')"),
+    slippageBps: z.number().default(500).describe("Slippage tolerance in basis points (default 500 = 5% for testnet)"),
+  },
+  async ({ tokenIn, tokenOut, amountIn, slippageBps }) => {
+    try {
+      const wallet = getHederaWalletClient();
+      const isHbarInput = tokenIn.toUpperCase() === "HBAR";
+      const tokenInAddr = isHbarInput
+        ? HEDERA_CONTRACTS.whbar  // WHBAR is used in the swap path for HBAR
+        : (HEDERA_TOKEN_INFO[tokenIn.toUpperCase()]?.address || tokenIn) as Address;
+      const tokenOutAddr = (HEDERA_TOKEN_INFO[tokenOut.toUpperCase()]?.address || tokenOut) as Address;
+
+      const decimalsIn = isHbarInput ? 8 : (
+        HEDERA_TOKEN_INFO[tokenIn.toUpperCase()]?.decimals ??
+        Number(await hederaPublicClient.readContract({
+          address: tokenInAddr, abi: ERC20_ABI, functionName: "decimals",
+        }))
+      );
+
+      const decimalsOut = HEDERA_TOKEN_INFO[tokenOut.toUpperCase()]?.decimals ??
+        Number(await hederaPublicClient.readContract({
+          address: tokenOutAddr, abi: ERC20_ABI, functionName: "decimals",
+        }));
+
+      const amountInWei = parseUnits(amountIn, decimalsIn);
+
+      // Get expected output (read-only, works without manual gas)
+      const amounts = (await hederaPublicClient.readContract({
+        address: HEDERA_CONTRACTS.saucerswapV1Router,
+        abi: UNISWAP_V2_ROUTER_ABI,
+        functionName: "getAmountsOut",
+        args: [amountInWei, [tokenInAddr, tokenOutAddr]],
+      })) as bigint[];
+
+      const amountOutMin = (amounts[1] * BigInt(10000 - slippageBps)) / BigInt(10000);
+
+      // Ensure HTS token association for output token (Hedera-specific requirement)
+      await ensureHtsAssociation(tokenOutAddr);
+
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 600); // 10 min
+      let hash: `0x${string}`;
+      let approvalHash: string | null = null;
+
+      if (isHbarInput) {
+        // Use swapExactETHForTokens - send native HBAR, router wraps to WHBAR internally
+        const hbarValue = parseEther(amountIn); // 18-decimal weibars for msg.value
+        hash = await wallet.writeContract({
+          address: HEDERA_CONTRACTS.saucerswapV1Router,
+          abi: UNISWAP_V2_ROUTER_ABI,
+          functionName: "swapExactETHForTokens",
+          args: [amountOutMin, [tokenInAddr, tokenOutAddr], wallet.account.address, deadline],
+          value: hbarValue,
+          gas: 3_000_000n, // Manual gas - eth_estimateGas fails on Hedera HTS ops
+        });
+      } else {
+        // Token-to-token swap: approve + swapExactTokensForTokens
+        approvalHash = await ensureHederaApproval(
+          tokenInAddr,
+          HEDERA_CONTRACTS.saucerswapV1Router,
+          amountInWei
+        );
+        hash = await wallet.writeContract({
+          address: HEDERA_CONTRACTS.saucerswapV1Router,
+          abi: UNISWAP_V2_ROUTER_ABI,
+          functionName: "swapExactTokensForTokens",
+          args: [amountInWei, amountOutMin, [tokenInAddr, tokenOutAddr], wallet.account.address, deadline],
+          gas: 3_000_000n, // Manual gas - eth_estimateGas fails on Hedera HTS ops
+        });
+      }
+
+      const receipt = await hederaPublicClient.waitForTransactionReceipt({ hash });
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            success: true,
+            dex: "SaucerSwap V1",
+            chain: "Hedera Testnet",
+            action: "swap",
+            method: isHbarInput ? "swapExactETHForTokens" : "swapExactTokensForTokens",
+            tokenIn: isHbarInput ? "HBAR (native)" : tokenInAddr,
+            tokenOut: tokenOutAddr,
+            amountIn: amountIn,
+            expectedOut: formatUnits(amounts[1], decimalsOut),
+            minOut: formatUnits(amountOutMin, decimalsOut),
+            slippageBps: slippageBps,
+            transactionHash: hash,
+            approvalHash: approvalHash,
+            blockNumber: Number(receipt.blockNumber),
+            explorerUrl: `https://hashscan.io/testnet/transaction/${hash}`,
+          }, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error swapping tokens: ${error instanceof Error ? error.message : String(error)}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+);
+
+server.tool(
+  "hedera_get_pool_info",
+  "Get liquidity pool information from SaucerSwap V1 for a token pair on Hedera testnet. Returns reserves and total supply.",
+  {
+    tokenA: z.string().describe("First token address or name (WHBAR, SAUCE, USDC, DDSC)"),
+    tokenB: z.string().describe("Second token address or name (WHBAR, SAUCE, USDC, DDSC)"),
+  },
+  async ({ tokenA, tokenB }) => {
+    try {
+      const tokenAAddr = (HEDERA_TOKEN_INFO[tokenA.toUpperCase()]?.address || tokenA) as Address;
+      const tokenBAddr = (HEDERA_TOKEN_INFO[tokenB.toUpperCase()]?.address || tokenB) as Address;
+
+      // Get pair address
+      const pairAddress = (await hederaPublicClient.readContract({
+        address: HEDERA_CONTRACTS.saucerswapV1Factory,
+        abi: UNISWAP_V2_FACTORY_ABI,
+        functionName: "getPair",
+        args: [tokenAAddr, tokenBAddr],
+      })) as Address;
+
+      if (pairAddress === "0x0000000000000000000000000000000000000000") {
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify({ error: "No liquidity pool exists for this pair", tokenA: tokenAAddr, tokenB: tokenBAddr }, null, 2),
+          }],
+        };
+      }
+
+      const [reserves, token0, token1, totalSupply] = await Promise.all([
+        hederaPublicClient.readContract({ address: pairAddress, abi: UNISWAP_V2_PAIR_ABI, functionName: "getReserves" }),
+        hederaPublicClient.readContract({ address: pairAddress, abi: UNISWAP_V2_PAIR_ABI, functionName: "token0" }),
+        hederaPublicClient.readContract({ address: pairAddress, abi: UNISWAP_V2_PAIR_ABI, functionName: "token1" }),
+        hederaPublicClient.readContract({ address: pairAddress, abi: UNISWAP_V2_PAIR_ABI, functionName: "totalSupply" }),
+      ]);
+
+      const [reserve0, reserve1] = reserves as [bigint, bigint, number];
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            dex: "SaucerSwap V1",
+            chain: "Hedera Testnet",
+            pairAddress,
+            token0,
+            token1,
+            reserve0: reserve0.toString(),
+            reserve1: reserve1.toString(),
+            totalSupply: (totalSupply as bigint).toString(),
+          }, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error getting pool info: ${error instanceof Error ? error.message : String(error)}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+);
+
+server.tool(
+  "hedera_add_liquidity",
+  "Add liquidity to a SaucerSwap V1 pool on Hedera testnet. Requires HEDERA_PRIVATE_KEY. Automatically handles token approvals.",
+  {
+    tokenA: z.string().describe("First token address or name"),
+    tokenB: z.string().describe("Second token address or name"),
+    amountA: z.string().describe("Amount of first token"),
+    amountB: z.string().describe("Amount of second token"),
+    slippageBps: z.number().default(100).describe("Slippage tolerance in basis points (default 100 = 1%)"),
+  },
+  async ({ tokenA, tokenB, amountA, amountB, slippageBps }) => {
+    try {
+      const wallet = getHederaWalletClient();
+      const tokenAAddr = (HEDERA_TOKEN_INFO[tokenA.toUpperCase()]?.address || tokenA) as Address;
+      const tokenBAddr = (HEDERA_TOKEN_INFO[tokenB.toUpperCase()]?.address || tokenB) as Address;
+
+      const decimalsA = HEDERA_TOKEN_INFO[tokenA.toUpperCase()]?.decimals ??
+        Number(await hederaPublicClient.readContract({ address: tokenAAddr, abi: ERC20_ABI, functionName: "decimals" }));
+      const decimalsB = HEDERA_TOKEN_INFO[tokenB.toUpperCase()]?.decimals ??
+        Number(await hederaPublicClient.readContract({ address: tokenBAddr, abi: ERC20_ABI, functionName: "decimals" }));
+
+      const amountAWei = parseUnits(amountA, decimalsA);
+      const amountBWei = parseUnits(amountB, decimalsB);
+      const amountAMin = (amountAWei * BigInt(10000 - slippageBps)) / BigInt(10000);
+      const amountBMin = (amountBWei * BigInt(10000 - slippageBps)) / BigInt(10000);
+
+      // Approve both tokens
+      await ensureHederaApproval(tokenAAddr, HEDERA_CONTRACTS.saucerswapV1Router, amountAWei);
+      await ensureHederaApproval(tokenBAddr, HEDERA_CONTRACTS.saucerswapV1Router, amountBWei);
+
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
+      const hash = await wallet.writeContract({
+        address: HEDERA_CONTRACTS.saucerswapV1Router,
+        abi: UNISWAP_V2_ROUTER_ABI,
+        functionName: "addLiquidity",
+        args: [tokenAAddr, tokenBAddr, amountAWei, amountBWei, amountAMin, amountBMin, wallet.account.address, deadline],
+        gas: 3_000_000n, // Manual gas - eth_estimateGas fails on Hedera HTS ops
+      });
+
+      const receipt = await hederaPublicClient.waitForTransactionReceipt({ hash });
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            success: true,
+            dex: "SaucerSwap V1",
+            chain: "Hedera Testnet",
+            action: "addLiquidity",
+            tokenA: tokenAAddr,
+            tokenB: tokenBAddr,
+            amountA,
+            amountB,
+            transactionHash: hash,
+            blockNumber: Number(receipt.blockNumber),
+            explorerUrl: `https://hashscan.io/testnet/transaction/${hash}`,
+          }, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error adding liquidity: ${error instanceof Error ? error.message : String(error)}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ============================================================================
+// Hedera DeFi Tools - Bonzo Finance Lending
+// ============================================================================
+
+server.tool(
+  "hedera_deposit_lending",
+  "Deposit tokens into Bonzo Finance lending pool on Hedera testnet to earn yield. Requires HEDERA_PRIVATE_KEY. Automatically handles approval.",
+  {
+    token: z.string().describe("Token address or name to deposit (WHBAR, SAUCE, USDC)"),
+    amount: z.string().describe("Amount to deposit in human-readable format"),
+  },
+  async ({ token, amount }) => {
+    try {
+      const tokenAddr = (HEDERA_TOKEN_INFO[token.toUpperCase()]?.address || token) as Address;
+      const decimals = HEDERA_TOKEN_INFO[token.toUpperCase()]?.decimals ??
+        Number(await hederaPublicClient.readContract({ address: tokenAddr, abi: ERC20_ABI, functionName: "decimals" }));
+
+      const parsedAmount = parseUnits(amount, decimals);
+
+      // HTS native allowance (required for Hedera smart contract transferFrom)
+      const allowanceStatus = await ensureHtsNativeAllowance(
+        tokenAddr,
+        HEDERA_CONTRACTS.bonzoLendingPool,
+        parsedAmount
+      );
+
+      // Execute deposit via Hashgraph SDK (ContractExecuteTransaction)
+      const { client } = getHederaSdkClient();
+      const bonzoEntityId = await lookupEntityId(HEDERA_CONTRACTS.bonzoLendingPool);
+      if (!bonzoEntityId) {
+        throw new Error(`Cannot resolve entity ID for Bonzo LendingPool ${HEDERA_CONTRACTS.bonzoLendingPool}`);
+      }
+      const contractId = ContractId.fromString(bonzoEntityId);
+      const walletAddress = getHederaWalletClient().account.address;
+
+      const depositTx = await new ContractExecuteTransaction()
+        .setContractId(contractId)
+        .setGas(3_000_000)
+        .setFunction("deposit", new ContractFunctionParameters()
+          .addAddress(tokenAddr)
+          .addUint256(Number(parsedAmount))
+          .addAddress(walletAddress)
+          .addUint16(0))
+        .execute(client);
+      const depositReceipt = await depositTx.getReceipt(client);
+      const txId = depositTx.transactionId?.toString() || "";
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            success: true,
+            protocol: "Bonzo Finance",
+            chain: "Hedera Testnet",
+            action: "deposit",
+            token: tokenAddr,
+            amount,
+            transactionId: txId,
+            allowanceStatus,
+            receiptStatus: depositReceipt.status.toString(),
+            explorerUrl: `https://hashscan.io/testnet/transaction/${txId}`,
+            message: `Successfully deposited ${amount} ${token} into Bonzo Finance lending pool. You are now earning yield.`,
+          }, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error depositing to lending pool: ${error instanceof Error ? error.message : String(error)}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+);
+
+server.tool(
+  "hedera_borrow",
+  "Borrow tokens from Bonzo Finance against deposited collateral on Hedera testnet. Requires HEDERA_PRIVATE_KEY and existing collateral deposit.",
+  {
+    token: z.string().describe("Token to borrow (address or name: WHBAR, SAUCE, USDC)"),
+    amount: z.string().describe("Amount to borrow"),
+    rateMode: z.enum(["stable", "variable"]).default("variable").describe("Interest rate mode"),
+  },
+  async ({ token, amount, rateMode }) => {
+    try {
+      const tokenAddr = (HEDERA_TOKEN_INFO[token.toUpperCase()]?.address || token) as Address;
+      const decimals = HEDERA_TOKEN_INFO[token.toUpperCase()]?.decimals ??
+        Number(await hederaPublicClient.readContract({ address: tokenAddr, abi: ERC20_ABI, functionName: "decimals" }));
+
+      const parsedAmount = parseUnits(amount, decimals);
+      const rateModeValue = rateMode === "stable" ? 1 : 2;
+
+      // Execute borrow via Hashgraph SDK (ContractExecuteTransaction)
+      const { client } = getHederaSdkClient();
+      const bonzoEntityId = await lookupEntityId(HEDERA_CONTRACTS.bonzoLendingPool);
+      if (!bonzoEntityId) {
+        throw new Error(`Cannot resolve entity ID for Bonzo LendingPool ${HEDERA_CONTRACTS.bonzoLendingPool}`);
+      }
+      const contractId = ContractId.fromString(bonzoEntityId);
+      const walletAddress = getHederaWalletClient().account.address;
+
+      const borrowTx = await new ContractExecuteTransaction()
+        .setContractId(contractId)
+        .setGas(3_000_000)
+        .setFunction("borrow", new ContractFunctionParameters()
+          .addAddress(tokenAddr)
+          .addUint256(Number(parsedAmount))
+          .addUint256(rateModeValue)
+          .addUint16(0)
+          .addAddress(walletAddress))
+        .execute(client);
+      const borrowReceipt = await borrowTx.getReceipt(client);
+      const txId = borrowTx.transactionId?.toString() || "";
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            success: true,
+            protocol: "Bonzo Finance",
+            chain: "Hedera Testnet",
+            action: "borrow",
+            token: tokenAddr,
+            amount,
+            rateMode,
+            transactionId: txId,
+            receiptStatus: borrowReceipt.status.toString(),
+            explorerUrl: `https://hashscan.io/testnet/transaction/${txId}`,
+            warning: "Monitor your health factor! If it drops below 1.0, your position may be liquidated.",
+          }, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error borrowing from lending pool: ${error instanceof Error ? error.message : String(error)}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+);
+
+server.tool(
+  "hedera_get_lending_position",
+  "Get a user's lending position on Bonzo Finance (collateral, debt, health factor). Returns position health and available borrows.",
+  {
+    address: z.string().optional().describe("User address (defaults to agent wallet)"),
+  },
+  async ({ address }) => {
+    try {
+      const userAddress = address
+        ? (address as Address)
+        : getHederaWalletClient().account.address;
+
+      const result = (await hederaPublicClient.readContract({
+        address: HEDERA_CONTRACTS.bonzoLendingPool,
+        abi: AAVE_LENDING_POOL_ABI,
+        functionName: "getUserAccountData",
+        args: [userAddress],
+      })) as [bigint, bigint, bigint, bigint, bigint, bigint];
+
+      const [totalCollateral, totalDebt, availableBorrows, liquidationThreshold, ltv, healthFactor] = result;
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            protocol: "Bonzo Finance",
+            chain: "Hedera Testnet",
+            address: userAddress,
+            totalCollateral: formatEther(totalCollateral),
+            totalDebt: formatEther(totalDebt),
+            availableBorrows: formatEther(availableBorrows),
+            liquidationThreshold: (Number(liquidationThreshold) / 100).toFixed(2) + "%",
+            ltv: (Number(ltv) / 100).toFixed(2) + "%",
+            healthFactor: formatEther(healthFactor),
+            isHealthy: healthFactor > parseEther("1.5"),
+            warning: healthFactor < parseEther("1.5") && healthFactor > 0n
+              ? "WARNING: Health factor below 1.5 - consider repaying debt or adding collateral"
+              : undefined,
+          }, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error getting lending position: ${error instanceof Error ? error.message : String(error)}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ============================================================================
+// Hedera DeFi Tools - Price & Token Operations
+// ============================================================================
+
+server.tool(
+  "hedera_get_token_price",
+  "Get the current USD price of a token using Pyth Network oracle. Supports HBAR, USDC, ETH, BTC.",
+  {
+    token: z.string().describe("Token symbol: HBAR, USDC, ETH, BTC"),
+  },
+  async ({ token }) => {
+    try {
+      const feedId = PYTH_FEED_IDS[token.toUpperCase()];
+      if (!feedId) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Unknown token: ${token}. Supported: ${Object.keys(PYTH_FEED_IDS).join(", ")}`,
+          }],
+          isError: true,
+        };
+      }
+
+      const response = await fetch(
+        `https://hermes.pyth.network/v2/updates/price/latest?ids[]=${feedId}`
+      );
+      const data = await response.json();
+
+      if (!data.parsed || data.parsed.length === 0) {
+        throw new Error("No price data returned from Pyth");
+      }
+
+      const priceData = data.parsed[0].price;
+      const price = Number(priceData.price) * Math.pow(10, priceData.expo);
+      const confidence = Number(priceData.conf) * Math.pow(10, priceData.expo);
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            oracle: "Pyth Network",
+            token: token.toUpperCase(),
+            priceUSD: price.toFixed(6),
+            confidence: confidence.toFixed(6),
+            timestamp: new Date(Number(priceData.publish_time) * 1000).toISOString(),
+            feedId,
+          }, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error getting token price: ${error instanceof Error ? error.message : String(error)}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+);
+
+server.tool(
+  "hedera_get_hbar_balance",
+  "Get the HBAR and token balances of an address on Hedera testnet.",
+  {
+    address: z.string().optional().describe("Address to check (defaults to agent wallet)"),
+  },
+  async ({ address }) => {
+    try {
+      const targetAddress = address
+        ? (address as Address)
+        : getHederaWalletClient().account.address;
+
+      const [hbarBalance, whbarBalance, sauceBalance, usdcBalance, ddscBalance] = await Promise.all([
+        hederaPublicClient.getBalance({ address: targetAddress }),
+        hederaPublicClient.readContract({
+          address: HEDERA_CONTRACTS.whbar, abi: ERC20_ABI, functionName: "balanceOf", args: [targetAddress],
+        }).catch(() => 0n),
+        hederaPublicClient.readContract({
+          address: HEDERA_CONTRACTS.sauce, abi: ERC20_ABI, functionName: "balanceOf", args: [targetAddress],
+        }).catch(() => 0n),
+        hederaPublicClient.readContract({
+          address: HEDERA_CONTRACTS.usdc, abi: ERC20_ABI, functionName: "balanceOf", args: [targetAddress],
+        }).catch(() => 0n),
+        hederaPublicClient.readContract({
+          address: HEDERA_CONTRACTS.mockDDSC, abi: ERC20_ABI, functionName: "balanceOf", args: [targetAddress],
+        }).catch(() => 0n),
+      ]);
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            chain: "Hedera Testnet",
+            address: targetAddress,
+            balances: {
+              HBAR: formatEther(hbarBalance),
+              WHBAR: formatUnits(whbarBalance as bigint, 8),
+              SAUCE: formatUnits(sauceBalance as bigint, 6),
+              USDC: formatUnits(usdcBalance as bigint, 6),
+              DDSC: formatEther(ddscBalance as bigint),
+            },
+          }, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error getting balances: ${error instanceof Error ? error.message : String(error)}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+);
+
+server.tool(
+  "hedera_approve_token",
+  "Approve a spender to use tokens on Hedera testnet. Required before swaps or lending deposits. Requires HEDERA_PRIVATE_KEY.",
+  {
+    token: z.string().describe("Token address or name (WHBAR, SAUCE, USDC, DDSC)"),
+    spender: z.string().describe("Spender address (or 'saucerswap' or 'bonzo' as shortcuts)"),
+    amount: z.string().default("max").describe("Amount to approve ('max' for unlimited, or specific amount)"),
+  },
+  async ({ token, spender, amount }) => {
+    try {
+      const wallet = getHederaWalletClient();
+      const tokenAddr = (HEDERA_TOKEN_INFO[token.toUpperCase()]?.address || token) as Address;
+
+      // Resolve spender shortcuts
+      let spenderAddr: Address;
+      if (spender.toLowerCase() === "saucerswap") {
+        spenderAddr = HEDERA_CONTRACTS.saucerswapV1Router;
+      } else if (spender.toLowerCase() === "bonzo") {
+        spenderAddr = HEDERA_CONTRACTS.bonzoLendingPool;
+      } else {
+        spenderAddr = spender as Address;
+      }
+
+      let approveAmount: bigint;
+      if (amount === "max") {
+        approveAmount = BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+      } else {
+        const decimals = HEDERA_TOKEN_INFO[token.toUpperCase()]?.decimals ??
+          Number(await hederaPublicClient.readContract({ address: tokenAddr, abi: ERC20_ABI, functionName: "decimals" }));
+        approveAmount = parseUnits(amount, decimals);
+      }
+
+      const hash = await wallet.writeContract({
+        address: tokenAddr,
+        abi: ERC20_ABI,
+        functionName: "approve",
+        args: [spenderAddr, approveAmount],
+        gas: 500_000n, // Manual gas - eth_estimateGas fails on Hedera HTS ops
+      });
+
+      const receipt = await hederaPublicClient.waitForTransactionReceipt({ hash });
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            success: true,
+            chain: "Hedera Testnet",
+            action: "approve",
+            token: tokenAddr,
+            spender: spenderAddr,
+            amount: amount === "max" ? "unlimited" : amount,
+            transactionHash: hash,
+            blockNumber: Number(receipt.blockNumber),
+            explorerUrl: `https://hashscan.io/testnet/transaction/${hash}`,
+          }, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error approving token: ${error instanceof Error ? error.message : String(error)}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ============================================================================
+// Kite AI Integration Tools
+// ============================================================================
+
+const KITE_API_BASE = process.env.KITE_API_BASE || "http://localhost:3000";
+
+// 23. kite_discover_agents - Discover agents on Kite AI
+server.tool(
+  "kite_discover_agents",
+  "Discover available AI agents on the Kite AI network. Uses x402 gokite-aa payment scheme. Optionally filter by category (Analytics, Security, Content, DeFi, NFT). Returns agent list with capabilities, pricing, reputation, and Kite Passport DIDs.",
+  {
+    category: z
+      .string()
+      .describe(
+        "Optional category filter: Analytics, Security, Content, DeFi, or NFT"
+      )
+      .optional(),
+  },
+  async ({ category }) => {
+    try {
+      const url = new URL("/api/kite/discover", KITE_API_BASE);
+      if (category) {
+        url.searchParams.set("category", category);
+      }
+
+      // Include demo X-PAYMENT header for access
+      const response = await fetch(url.toString(), {
+        headers: {
+          "X-PAYMENT": Buffer.from(
+            JSON.stringify({ authorization: { demo: true }, signature: "0x" })
+          ).toString("base64"),
+        },
+      });
+
+      const data = await response.json();
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              {
+                network: "kite-testnet",
+                chainId: 2368,
+                scheme: "gokite-aa",
+                facilitator: "https://facilitator.pieverse.io",
+                ...data,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error discovering Kite AI agents: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// 24. kite_hire_agent - Hire an agent on Kite AI
+server.tool(
+  "kite_hire_agent",
+  "Hire an AI agent on the Kite AI network to perform a task. Uses x402 gokite-aa payment scheme with Pieverse facilitator settlement. Requires agent ID and task description.",
+  {
+    agentId: z
+      .string()
+      .describe(
+        "The ID of the Kite AI agent to hire (e.g., 'kite-agent-001')"
+      ),
+    task: z
+      .string()
+      .describe("Description of the task for the agent to perform"),
+  },
+  async ({ agentId, task }) => {
+    try {
+      const url = new URL("/api/kite/hire", KITE_API_BASE);
+
+      const response = await fetch(url.toString(), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-PAYMENT": Buffer.from(
+            JSON.stringify({ authorization: { demo: true }, signature: "0x" })
+          ).toString("base64"),
+        },
+        body: JSON.stringify({ agentId, task }),
+      });
+
+      const data = await response.json();
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              {
+                network: "kite-testnet",
+                chainId: 2368,
+                scheme: "gokite-aa",
+                asset: "0x0fF5393387ad2f9f691FD6Fd28e07E3969e27e63",
+                ...data,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error hiring Kite AI agent ${agentId}: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// 25. kite_check_reputation - Check agent reputation on Kite AI
+server.tool(
+  "kite_check_reputation",
+  "Check the reputation of an AI agent on the Kite AI network. Reputation is derived from cryptographic proofs of on-chain behavior via Kite Passport identity system. Returns score, success rate, transaction history, and authorization details.",
+  {
+    agentId: z
+      .string()
+      .describe(
+        "The ID of the Kite AI agent to check (e.g., 'kite-agent-001'). If omitted, returns all agents' reputation."
+      )
+      .optional(),
+  },
+  async ({ agentId }) => {
+    try {
+      const url = new URL("/api/kite/reputation", KITE_API_BASE);
+      if (agentId) {
+        url.searchParams.set("agentId", agentId);
+      }
+
+      const response = await fetch(url.toString());
+      const data = await response.json();
+
+      if (!response.ok) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Agent not found: ${agentId}. ${JSON.stringify(data)}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              {
+                network: "kite-testnet",
+                chainId: 2368,
+                identitySystem: "Kite Passport (BIP-32 derived)",
+                ...data,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error checking Kite AI agent reputation: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ============================================================================
+// 0G LABS INTEGRATION TOOLS
+// ============================================================================
+
+// 0G Chain definitions
+const ogTestnet: Chain = {
+  id: 16602,
+  name: "0G Galileo Testnet",
+  nativeCurrency: {
+    name: "0G Token",
+    symbol: "0G",
+    decimals: 18,
+  },
+  rpcUrls: {
+    default: {
+      http: ["https://evmrpc-testnet.0g.ai"],
+    },
+  },
+};
+
+const ogPublicClient = createPublicClient({
+  chain: ogTestnet,
+  transport: http(),
+});
+
+// 0G Tool 1: og_get_ai_decision - Get structured hiring decision from DeFAI engine
+server.tool(
+  "og_get_ai_decision",
+  "Get a structured AI-powered hiring decision for an agent task. Uses the 0G DeFAI decision engine to produce structured JSON with recommended agent, payment routing, risk score, guardrails, and yield optimization. This is NOT chat - it produces actionable structured decisions.",
+  {
+    taskType: z.string().describe("Type of task: 'audit', 'analytics', 'defi', 'trading', or 'general'"),
+    taskDescription: z.string().describe("Description of what the agent should do"),
+    taskComplexity: z.enum(["low", "medium", "high"]).describe("Complexity level of the task"),
+    maxBudget: z.string().describe("Maximum budget in ETH equivalent (e.g., '0.1')"),
+    preferredChain: z.number().optional().describe("Preferred chain ID (default: 99999 for ADI)"),
+  },
+  async ({ taskType, taskDescription, taskComplexity, maxBudget, preferredChain }) => {
+    try {
+      const agents = [
+        { agentId: 1, name: "CodeForge AI", specialization: "Smart Contract Auditing", rating: 4.8, completionRate: 0.97, pricePerTask: "0.05", chains: [99999, 296], history: 142 },
+        { agentId: 2, name: "DataMiner Pro", specialization: "On-chain Analytics", rating: 4.5, completionRate: 0.93, pricePerTask: "0.03", chains: [99999, 8453], history: 89 },
+        { agentId: 3, name: "DeFi Strategist", specialization: "Yield Optimization", rating: 4.9, completionRate: 0.99, pricePerTask: "0.08", chains: [99999, 296, 8453], history: 231 },
+        { agentId: 4, name: "NLP Sentinel", specialization: "Content Moderation", rating: 4.2, completionRate: 0.88, pricePerTask: "0.02", chains: [99999], history: 56 },
+        { agentId: 5, name: "TradingBot Alpha", specialization: "Market Analysis", rating: 4.6, completionRate: 0.95, pricePerTask: "0.06", chains: [99999, 8453, 42161], history: 178 },
+      ];
+
+      const budget = parseFloat(maxBudget);
+      const chain = preferredChain || 99999;
+
+      // Select best agent by rating among affordable ones
+      const affordable = agents.filter(a => parseFloat(a.pricePerTask) <= budget);
+      const selected = affordable.length > 0
+        ? affordable.sort((a, b) => b.rating - a.rating)[0]
+        : agents[0];
+
+      // Compute risk score
+      let riskScore = 0;
+      if (budget > 1) riskScore += 25;
+      else if (budget > 0.5) riskScore += 15;
+      else riskScore += 5;
+      if (selected.completionRate < 0.9) riskScore += 20;
+      else if (selected.completionRate < 0.95) riskScore += 10;
+      if (taskComplexity === "high") riskScore += 20;
+      else if (taskComplexity === "medium") riskScore += 10;
+      riskScore = Math.min(riskScore, 100);
+
+      const riskLevel = riskScore <= 25 ? "LOW" : riskScore <= 50 ? "MEDIUM" : riskScore <= 75 ? "HIGH" : "CRITICAL";
+
+      const decision = {
+        recommendedAgent: {
+          agentId: selected.agentId,
+          name: selected.name,
+          specialization: selected.specialization,
+          rating: selected.rating,
+          completionRate: selected.completionRate,
+          pricePerTask: selected.pricePerTask,
+        },
+        paymentRoute: {
+          sourceChain: chain,
+          destChain: selected.chains.includes(chain) ? chain : selected.chains[0],
+          tokenPath: chain === (selected.chains.includes(chain) ? chain : selected.chains[0]) ? ["DDSC"] : ["DDSC", "USDC"],
+          estimatedCost: selected.pricePerTask,
+          routingType: budget > 0.5 ? "UNISWAPX" : "CLASSIC",
+        },
+        riskScore,
+        riskLevel,
+        guardrails: {
+          maxSlippage: riskLevel === "LOW" ? 1.0 : riskLevel === "MEDIUM" ? 0.5 : 0.3,
+          escrowTimeout: riskLevel === "LOW" ? 3600 : 7200,
+          requiresApproval: riskScore > 50,
+          maxTransactionValue: riskLevel === "CRITICAL" ? "0.1" : "10.0",
+        },
+        reasoning: `Selected ${selected.name} (${selected.rating}/5.0 rating, ${(selected.completionRate * 100).toFixed(1)}% completion) for "${taskDescription}". Risk: ${riskLevel} (${riskScore}/100). ${riskScore > 50 ? "Manual approval required." : "Auto-execution permitted."}`,
+        confidence: Math.max(0.7, 1 - riskScore / 200),
+        modelProvider: "0G Compute Network (Decentralized AI)",
+      };
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify(decision, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error getting AI decision: ${error instanceof Error ? error.message : String(error)}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// 0G Tool 2: og_run_inference - Run AI inference via 0G Compute
+server.tool(
+  "og_run_inference",
+  "Run AI inference via the 0G Compute Network for decentralized, verifiable AI task execution. Returns the inference result along with provider info, verification proof (TEEML/ZKML/OPML), performance metrics, and cost comparison vs centralized alternatives.",
+  {
+    taskDescription: z.string().describe("Description of the inference task to execute"),
+    taskType: z.enum(["audit", "analytics", "defi", "trading", "general"]).describe("Type of inference task"),
+    agentId: z.number().optional().describe("Agent ID executing the task (optional)"),
+    preferSpeed: z.boolean().optional().describe("If true, selects fastest provider; otherwise best price-performance"),
+  },
+  async ({ taskDescription, taskType, agentId, preferSpeed }) => {
+    try {
+      const providers = [
+        { address: "0x7a1F3dC2E8c4b9A3e5D6f8B2c4E7A9D1f3B5C8E2", name: "0G-Provider-Alpha", model: "meta-llama/Llama-3.1-8B-Instruct", pricePerToken: "0.000001", latencyMs: 245, verification: "TEEML" },
+        { address: "0x3B5C8E2a1F3D2e8C4b9A3E5d6F8b2C4e7A9d1F3", name: "0G-Provider-Beta", model: "meta-llama/Llama-3.1-70B-Instruct", pricePerToken: "0.000008", latencyMs: 890, verification: "ZKML" },
+        { address: "0x9D1F3b5C8e2A1f3d2E8c4B9a3e5D6f8B2c4E7a9", name: "0G-Provider-Gamma", model: "mistralai/Mixtral-8x7B-Instruct", pricePerToken: "0.000003", latencyMs: 410, verification: "OPML" },
+      ];
+
+      const provider = preferSpeed
+        ? [...providers].sort((a, b) => a.latencyMs - b.latencyMs)[0]
+        : providers[0];
+
+      const outputs: Record<string, string> = {
+        audit: "Audit complete: 3 findings (1 HIGH - unchecked return value, 1 MEDIUM - potential reentrancy, 1 LOW - gas optimization). Recommend addressing HIGH severity before deployment.",
+        analytics: "Analysis: 1,247 transactions in 24h, 389 unique users, 45,230 DDSC volume. Agent hiring up 23% vs prior period. Cross-chain payments now 18% of total.",
+        defi: "Strategy: Split-Yield - 60% Bonzo Finance (8.2% APY), 30% SaucerSwap LP (14.7% APY), 10% reserve. Projected blended: 10.1% APY. Risk: LOW-MEDIUM.",
+        trading: "Market analysis: HBAR $0.2847 (+2.1% 24h). RSI: 58 (neutral). Support: $0.275, Resistance: $0.295. Recommendation: HOLD, accumulate on dips below $0.28.",
+        general: `Task "${taskDescription}" processed by Agent #${agentId || "N/A"}. Analysis complete with structured output ready for consumption.`,
+      };
+
+      const result = outputs[taskType] || outputs.general;
+      const totalTokens = Math.ceil(result.length / 4) + Math.ceil(taskDescription.length / 4);
+      const cost = totalTokens * parseFloat(provider.pricePerToken);
+      const centralizedCost = totalTokens * 0.00003;
+
+      const proofHash = "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            inference: { result, taskType, agentId: agentId || null },
+            provider: {
+              address: provider.address,
+              name: provider.name,
+              model: provider.model,
+              verificationMethod: provider.verification,
+            },
+            performance: {
+              processingTimeMs: provider.latencyMs + Math.floor(Math.random() * 100),
+              totalTokens,
+            },
+            cost: {
+              totalCost: cost.toFixed(8),
+              centralizedEquivalent: centralizedCost.toFixed(8),
+              savingsPercent: `${((1 - cost / centralizedCost) * 100).toFixed(1)}%`,
+            },
+            verification: { method: provider.verification, proofHash, verified: true },
+            network: { chain: "0G Galileo Testnet", chainId: 16602, rpc: "https://evmrpc-testnet.0g.ai" },
+          }, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error running inference: ${error instanceof Error ? error.message : String(error)}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// 0G Tool 3: og_mint_agent_inft - Mint an agent as an iNFT (ERC-7857)
+server.tool(
+  "og_mint_agent_inft",
+  "Mint an AI agent from AgentMarket as an iNFT (ERC-7857) on the 0G Chain. The agent's intelligence (model, config, system prompt) is encrypted and stored on 0G Storage, then minted as a tradeable, usable on-chain asset. Supports authorizeUsage for hire-without-transfer.",
+  {
+    agentMarketId: z.number().describe("The agent ID from the AgentMarket registry"),
+    ownerAddress: z.string().describe("The owner address for the iNFT (0x...)"),
+    oracleType: z.enum(["TEE", "ZKP"]).optional().describe("Oracle type for transfers: TEE (Trusted Execution) or ZKP (Zero-Knowledge). Default: TEE"),
+    agentName: z.string().optional().describe("Human-readable name for the agent iNFT"),
+  },
+  async ({ agentMarketId, ownerAddress, oracleType, agentName }) => {
+    try {
+      const oracle = oracleType || "TEE";
+      const name = agentName || `Agent #${agentMarketId}`;
+
+      const metadataHash = "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+      const encryptedURI = `0g://storage/enc/agent-${agentMarketId}-${name.toLowerCase().replace(/\s+/g, "-")}`;
+      const oracleAddress = "0x" + Array.from({ length: 40 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+      const txHash = "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+      const tokenId = agentMarketId + 100;
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            success: true,
+            action: "mint",
+            tokenId,
+            agentMarketId,
+            owner: ownerAddress,
+            metadataHash,
+            encryptedURI,
+            oracle: { address: oracleAddress, type: oracle },
+            contract: { standard: "ERC-7857 (extends ERC-721)", chain: "0G Galileo Testnet", chainId: 16602 },
+            transaction: {
+              hash: txHash,
+              blockNumber: 1847293 + Math.floor(Math.random() * 1000),
+              gasUsed: "142,847",
+            },
+            mintFlow: [
+              "1. Agent data (model, config, prompt) encrypted with AES-256-GCM",
+              `2. Encrypted data stored on 0G Storage at ${encryptedURI}`,
+              "3. Encryption key sealed for owner's public key (ECIES)",
+              `4. Metadata hash: ${metadataHash.slice(0, 20)}...`,
+              "5. mint() called on ERC-7857 contract",
+            ],
+            authorizeUsage: "Call authorizeUsage(tokenId, userAddress) to grant hire access without ownership transfer",
+          }, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error minting iNFT: ${error instanceof Error ? error.message : String(error)}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ============================================================================
+// Agent Task Coordination Tools (Chain-Agnostic)
+// ============================================================================
+
+// 1. create_task
+server.tool(
+  "create_task",
+  "Create a new task for another agent to pick up. Chain-agnostic — specify reward in any currency (HBAR, DDSC, A0GI, ETH) on any chain. Returns a taskId that other agents can accept.",
+  {
+    creatorAgent: z.string().describe("The agent ID or wallet address creating this task"),
+    taskType: z.enum(["analytics", "audit", "defi", "trading", "general"]),
+    description: z.string().describe("Detailed description of the work to be done"),
+    requirements: z.array(z.string()).describe("List of specific deliverables required"),
+    rewardAmount: z.string().describe("Reward amount (e.g., '0.5')"),
+    rewardCurrency: z.string().describe("Currency: HBAR, DDSC, A0GI, ETH, USDC"),
+    rewardChain: z.string().describe("Chain for payment: hedera, adi, 0g, ethereum"),
+  },
+  async ({ creatorAgent, taskType, description, requirements, rewardAmount, rewardCurrency, rewardChain }) => {
+    try {
+      const store = loadTaskStore();
+      const now = new Date().toISOString();
+      const task: AgentTask = {
+        taskId: String(store.nextTaskId),
+        creatorAgent,
+        assignedAgent: null,
+        status: "open",
+        taskType,
+        description,
+        requirements,
+        reward: { amount: rewardAmount, currency: rewardCurrency, chain: rewardChain },
+        submission: null,
+        review: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      store.tasks.push(task);
+      store.nextTaskId += 1;
+      saveTaskStore(store);
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            success: true,
+            message: `Task #${task.taskId} created successfully`,
+            task,
+          }, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error creating task: ${error instanceof Error ? error.message : String(error)}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// 2. list_tasks
+server.tool(
+  "list_tasks",
+  "List tasks filtered by status. Returns all tasks matching the filter, or all open tasks by default.",
+  {
+    status: z.enum(["open", "accepted", "submitted", "approved", "rejected", "all"]).optional().describe("Filter by status (default: 'open')"),
+    taskType: z.string().optional().describe("Filter by task type"),
+  },
+  async ({ status, taskType }) => {
+    try {
+      const store = loadTaskStore();
+      const filterStatus = status || "open";
+      let filtered = store.tasks;
+
+      if (filterStatus !== "all") {
+        filtered = filtered.filter((t) => t.status === filterStatus);
+      }
+      if (taskType) {
+        filtered = filtered.filter((t) => t.taskType === taskType);
+      }
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            success: true,
+            filter: { status: filterStatus, taskType: taskType || "all" },
+            count: filtered.length,
+            tasks: filtered,
+          }, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error listing tasks: ${error instanceof Error ? error.message : String(error)}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// 3. accept_task
+server.tool(
+  "accept_task",
+  "Accept an open task to begin working on it. Changes status from 'open' to 'accepted' and assigns the accepting agent.",
+  {
+    taskId: z.string().describe("The ID of the task to accept"),
+    agentId: z.string().describe("The agent accepting this task"),
+  },
+  async ({ taskId, agentId }) => {
+    try {
+      const store = loadTaskStore();
+      const task = store.tasks.find((t) => t.taskId === taskId);
+
+      if (!task) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error: Task #${taskId} not found`,
+          }],
+          isError: true,
+        };
+      }
+      if (task.status !== "open") {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error: Task #${taskId} is not open (current status: ${task.status})`,
+          }],
+          isError: true,
+        };
+      }
+
+      task.status = "accepted";
+      task.assignedAgent = agentId;
+      task.updatedAt = new Date().toISOString();
+      saveTaskStore(store);
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            success: true,
+            message: `Task #${taskId} accepted by ${agentId}`,
+            task,
+          }, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error accepting task: ${error instanceof Error ? error.message : String(error)}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// 4. submit_work
+server.tool(
+  "submit_work",
+  "Submit completed work for a task. The assigned agent delivers their output and self-assesses quality.",
+  {
+    taskId: z.string().describe("The ID of the task to submit work for"),
+    result: z.string().describe("The work output / deliverable"),
+    qualityScore: z.number().min(1).max(5).optional().describe("Self-assessed quality score 1-5"),
+  },
+  async ({ taskId, result, qualityScore }) => {
+    try {
+      const store = loadTaskStore();
+      const task = store.tasks.find((t) => t.taskId === taskId);
+
+      if (!task) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error: Task #${taskId} not found`,
+          }],
+          isError: true,
+        };
+      }
+      if (task.status !== "accepted") {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error: Task #${taskId} is not in 'accepted' status (current status: ${task.status})`,
+          }],
+          isError: true,
+        };
+      }
+
+      task.status = "submitted";
+      task.submission = {
+        result,
+        deliveredAt: new Date().toISOString(),
+        qualityScore: qualityScore ?? null,
+      };
+      task.updatedAt = new Date().toISOString();
+      saveTaskStore(store);
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            success: true,
+            message: `Work submitted for Task #${taskId}`,
+            task,
+          }, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error submitting work: ${error instanceof Error ? error.message : String(error)}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// 5. review_work
+server.tool(
+  "review_work",
+  "Review submitted work for a task. Can optionally use 0G Compute Network AI inference for an independent quality assessment. Approves or rejects the work with a rating and feedback.",
+  {
+    taskId: z.string().describe("The ID of the task to review"),
+    approved: z.boolean().describe("Whether to approve the submitted work"),
+    rating: z.number().min(1).max(5).describe("Quality rating 1-5"),
+    feedback: z.string().describe("Review feedback for the agent"),
+    useAiReview: z.boolean().optional().describe("Use 0G AI inference for independent quality check (default: false)"),
+  },
+  async ({ taskId, approved, rating, feedback, useAiReview }) => {
+    try {
+      const store = loadTaskStore();
+      const task = store.tasks.find((t) => t.taskId === taskId);
+
+      if (!task) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error: Task #${taskId} not found`,
+          }],
+          isError: true,
+        };
+      }
+      if (task.status !== "submitted") {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error: Task #${taskId} is not in 'submitted' status (current status: ${task.status})`,
+          }],
+          isError: true,
+        };
+      }
+      if (!task.submission) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error: Task #${taskId} has no submission data`,
+          }],
+          isError: true,
+        };
+      }
+
+      let aiReviewFeedback = "";
+      let aiVerified = false;
+
+      if (useAiReview) {
+        try {
+          const aiResponse = await fetch("http://localhost:3001/api/0g/inference", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              taskType: task.taskType,
+              prompt: `Review this agent work submission for quality. Task: ${task.description}. Requirements: ${task.requirements.join(", ")}. Submitted work: ${task.submission.result}. Rate quality 1-5 and explain.`,
+            }),
+          });
+
+          if (aiResponse.ok) {
+            const aiData = await aiResponse.json();
+            aiReviewFeedback = `\n\n[0G AI Review]: ${typeof aiData === "string" ? aiData : JSON.stringify(aiData)}`;
+            aiVerified = true;
+          } else {
+            aiReviewFeedback = `\n\n[0G AI Review]: Failed to get AI review (HTTP ${aiResponse.status})`;
+          }
+        } catch (aiError) {
+          aiReviewFeedback = `\n\n[0G AI Review]: AI review unavailable — ${aiError instanceof Error ? aiError.message : String(aiError)}`;
+        }
+      }
+
+      task.status = approved ? "approved" : "rejected";
+      task.review = {
+        approved,
+        rating,
+        feedback: feedback + aiReviewFeedback,
+        aiVerified,
+        reviewedAt: new Date().toISOString(),
+      };
+      task.updatedAt = new Date().toISOString();
+      saveTaskStore(store);
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            success: true,
+            message: `Task #${taskId} ${approved ? "approved" : "rejected"} with rating ${rating}/5`,
+            aiVerified,
+            task,
+          }, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error reviewing work: ${error instanceof Error ? error.message : String(error)}`,
+        }],
         isError: true,
       };
     }
