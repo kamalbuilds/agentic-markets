@@ -215,6 +215,38 @@ Agent models default to `claude-sonnet-4-5` via OpenRouter, with fallbacks to `g
 
 ---
 
+How We Use 0G (3 Deep Integrations Fully Working)
+1. 0G Compute Network — Decentralized AI Inference
+Every agent decision runs through real 0G Compute Network inference on Galileo Testnet. When our Commerce Agent needs to decide whether to hire an Analytics Agent for a DeFi evaluation, the full context (agent ratings, task complexity, budget, risk factors) is sent to a Qwen 2.5 7B model running on a TeeML-verified provider. The response comes back with a cryptographic proof that the computation was executed correctly inside a Trusted Execution Environment — no blind trust in a centralized API.
+
+Provider: 0xa48f01287233509FD694a22Bf840225062E67836
+
+Model: qwen/qwen-2.5-7b-instruct via TeeML
+
+SDK: @0glabs/0g-serving-broker with full broker lifecycle (discovery → acknowledgment → funding → inference → verification)
+
+Auto-funding system that monitors per-provider sub-account balances and tops up via:
+
+broker.ledger.depositFund()
+broker.ledger.transferFund()
+2. ERC-7857 iNFTs — Tokenized Agent Intelligence
+AI agents are minted as encrypted NFTs (ERC-7857) on 0G Galileo. The agent's model config, system prompt, and capabilities are encrypted with AES-256-GCM and stored on 0G Storage. The encryption key is sealed for the owner's public key.
+
+This enables a "hire without buy" pattern — authorizeUsage() grants temporary access to an agent's intelligence without transferring ownership.
+
+On transfer, the oracle (TEE or ZKP) re-encrypts the sealed key for the new owner.
+
+3. 0G DeFAI Decision Engine
+A hybrid local + AI decision engine for autonomous agent hiring.
+
+Local scoring (agent matching, risk assessment, payment routing) is augmented by real 0G inference that provides nuanced analysis:
+
+Agent assessment
+Task feasibility
+Yield optimization suggestions
+Guardrail recommendations
+Graceful degradation: if inference is unavailable, falls back to local-only reasoning.
+
 ## MCP Server
 
 The MCP (Model Context Protocol) server bridges AI agents to on-chain smart contracts. Built with `@modelcontextprotocol/sdk`, it exposes 16 tools (9 read, 7 write) over stdio transport:
@@ -248,30 +280,6 @@ Key capabilities:
 - **Fiat price conversion**: AED/USD display alongside crypto amounts
 - **Paymaster API**: Next.js API route for gas sponsorship signing
 - **Dashboard views**: Monitoring assets, volumes, and agent performance
-
----
-
-## Bounties Targeted
-
-### ADI FoundationOpen Project Submission$19,000
-**Tokenization of AI Agent Services for Institutional Use.** AgentMarket tokenizes AI agent services as on-chain digital assets with pricing, reputation, and payment rails on ADI Chain. Deployed MVP with institutional-grade smart contracts, compliance-ready governance (Ownable, whitelisting, rate limits), multi-token settlement (native + DDSC stablecoin), and DePIN deployment via Akash Network.
-
-### ADI FoundationERC-4337 Paymaster Devtools$3,000
-ADIPaymaster is a production-ready ERC-4337 verifying paymaster compatible with EntryPoint v0.7. Features backend-controlled sponsor signer, per-user rate limits, whitelisting, and batch operations.
-
-### ADI FoundationPayments Component for Merchants$3,000
-MerchantVault + frontend checkout provides a Stripe-like experience for crypto payments on ADI Chain. Merchant onboarding, fiat-denominated pricing, QR code payments, and embeddable checkout.
-
-### HederaKiller App for the Agentic Society (OpenClaw)$10,000
-Agent-native application for a society of OpenClaw agents where commerce, coordination, and value exchange happens autonomously. On-chain reputation provides trust. HSS enables recurring autonomous payments.
-
-### HederaOn-Chain Automation with Hedera Schedule Service$5,000
-SubscriptionManager uses HSS system contract at `0x16b` to schedule autonomous recurring payments with contract-driven scheduling, lifecycle tracking, and self-rescheduling.
-
-### ETHDenver Main Tracks
-- **Futurllama** (AI + Frontier Tech): Autonomous AI agents with on-chain commerce
-- **New France Village** (Future of Finance): Tokenized AI services with stablecoin settlement
-- **ETHERSPACE** (User-owned Internet): Decentralized agent marketplace on DePIN compute
 
 ---
 
@@ -406,22 +414,10 @@ denver/
 │       ├── agentmarket-merchant/
 │       ├── agentmarket-defi/
 │       └── agentmarket-autonomous/
-├── akash/                  # Akash Network deployment (SDL + Dockerfile)
 ├── demo/                   # E2E demo script against live testnet
 ├── docker-compose.yml      # Full-stack orchestration
-├── prizes.json             # ETHDenver 2026 bounty targets
 └── README.md               # This file
 ```
-
----
-
-## Team
-
-| Name | Role | Contact |
-|------|------|---------|
-| TBD | Smart Contracts / Backend | |
-| TBD | Frontend / UI | |
-| TBD | AI Agents / MCP | |
 
 ---
 
