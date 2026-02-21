@@ -109,7 +109,7 @@ export default function EmbedDemoPage() {
           <p className="mx-auto mt-4 max-w-2xl text-lg text-neutral-400">
             Add merchant payments to any web frontend with a single React
             component. Supports wallet connection, live price conversion, and
-            on-chain checkout -- all in a compact, embeddable widget.
+            on-chain checkoutall in a compact, embeddable widget.
           </p>
         </div>
 
@@ -158,21 +158,19 @@ export default function EmbedDemoPage() {
                   <div className="flex gap-2">
                     <button
                       onClick={() => setTheme("dark")}
-                      className={`flex-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
-                        theme === "dark"
+                      className={`flex-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${theme === "dark"
                           ? "border-indigo-500/50 bg-indigo-500/10 text-indigo-300"
                           : "border-white/10 bg-white/[0.03] text-neutral-400 hover:bg-white/[0.06]"
-                      }`}
+                        }`}
                     >
                       Dark
                     </button>
                     <button
                       onClick={() => setTheme("light")}
-                      className={`flex-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
-                        theme === "light"
+                      className={`flex-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${theme === "light"
                           ? "border-indigo-500/50 bg-indigo-500/10 text-indigo-300"
                           : "border-white/10 bg-white/[0.03] text-neutral-400 hover:bg-white/[0.06]"
-                      }`}
+                        }`}
                     >
                       Light
                     </button>
@@ -185,21 +183,19 @@ export default function EmbedDemoPage() {
                   <div className="flex gap-2">
                     <button
                       onClick={() => setCompact(false)}
-                      className={`flex-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
-                        !compact
+                      className={`flex-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${!compact
                           ? "border-indigo-500/50 bg-indigo-500/10 text-indigo-300"
                           : "border-white/10 bg-white/[0.03] text-neutral-400 hover:bg-white/[0.06]"
-                      }`}
+                        }`}
                     >
                       Full
                     </button>
                     <button
                       onClick={() => setCompact(true)}
-                      className={`flex-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
-                        compact
+                      className={`flex-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${compact
                           ? "border-indigo-500/50 bg-indigo-500/10 text-indigo-300"
                           : "border-white/10 bg-white/[0.03] text-neutral-400 hover:bg-white/[0.06]"
-                      }`}
+                        }`}
                     >
                       Compact
                     </button>
@@ -244,11 +240,10 @@ export default function EmbedDemoPage() {
                 <button
                   key={tab.key}
                   onClick={() => setActiveTab(tab.key)}
-                  className={`flex-1 rounded-md px-3 py-2 text-xs font-medium transition-colors ${
-                    activeTab === tab.key
+                  className={`flex-1 rounded-md px-3 py-2 text-xs font-medium transition-colors ${activeTab === tab.key
                       ? "bg-indigo-500/15 text-indigo-300"
                       : "text-neutral-400 hover:text-neutral-200"
-                  }`}
+                    }`}
                 >
                   {tab.label}
                 </button>

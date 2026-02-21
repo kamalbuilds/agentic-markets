@@ -90,8 +90,8 @@ async function initializeSetup(): Promise<CachedSetup> {
     const allServices = await broker.inference.listService(0, 50, true);
     throw new Error(
       `No acknowledged inference services found on 0G Galileo Testnet. ` +
-        `Total services (including unacknowledged): ${allServices.length}. ` +
-        `Make sure providers have been acknowledged on-chain.`
+      `Total services (including unacknowledged): ${allServices.length}. ` +
+      `Make sure providers have been acknowledged on-chain.`
     );
   }
 
@@ -167,7 +167,7 @@ async function ensureProviderReady(
       let needsFunding = true;
       try {
         const account = await broker.inference.getAccount(providerAddress);
-        // account has balance info -- if the balance is non-zero, skip funding
+        // account has balance infoif the balance is non-zero, skip funding
         // AccountStructOutput is a tuple: [user, provider, balance, ...]
         const balance = account[2]; // balance field
         const minRequired = ethers.parseEther("0.15");
@@ -228,7 +228,7 @@ async function ensureProviderReady(
         fundedProviders.add(providerAddress);
       } else {
         console.error(`[0G] Funding error: ${msg}`);
-        // Don't block inference -- the provider sub-account may already have funds
+        // Don't block inferencethe provider sub-account may already have funds
         // from a previous session. Mark as funded so we don't retry every request.
         fundedProviders.add(providerAddress);
       }

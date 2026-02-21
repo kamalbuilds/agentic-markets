@@ -9,7 +9,6 @@ import {
   ArrowRight,
   Loader2,
   CheckCircle,
-  XCircle,
   Clock,
   Users,
   Key,
@@ -33,25 +32,43 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 // ---------- types ----------
 interface KiteAgent {
   id: string;
-  name: string;
+  name?: string;
+  registryId?: number;
+  owner?: string;
+  metadataURI?: string;
   category: string;
-  description: string;
-  capabilities: string[];
+  description?: string;
+  capabilities?: string[];
   pricePerTask: string;
+  pricePerTaskFormatted?: string;
   reputation: number;
   totalTasks: number;
+  ratingCount?: number;
   did: string;
   status: string;
+  isActive?: boolean;
+  createdAt?: string;
 }
 
 interface AgentReputation {
   agentId: string;
+  registryId?: number;
+  owner?: string;
+  metadataURI?: string;
   did: string;
   identityTier: string;
   score: number;
   totalTransactions: number;
-  successRate: number;
-  standingIntentActive: boolean;
+  ratingCount?: number;
+  successRate?: number;
+  standingIntentActive?: boolean;
+  isActive?: boolean;
+  dimensions?: {
+    reliability: number;
+    quality: number;
+    speed: number;
+    value: number;
+  };
 }
 
 interface HireResult {
@@ -96,8 +113,12 @@ function StarRating({ rating }: { rating: number }) {
 }
 
 function formatUSDT(wei: string): string {
-  const value = Number(BigInt(wei)) / 1e18;
-  return value.toFixed(value < 1 ? 2 : 0);
+  try {
+    const value = Number(BigInt(wei)) / 1e18;
+    return value.toFixed(value < 1 ? 2 : 0);
+  } catch {
+    return "0";
+  }
 }
 
 // ---------- page ----------
@@ -312,7 +333,7 @@ export default function KiteAIPage() {
                         </div>
                         <div>
                           <CardTitle className="text-base text-white">
-                            {agent.name}
+                            {agent.name ?? agent.metadataURI ?? agent.id}
                           </CardTitle>
                           <Badge
                             variant="outline"
@@ -332,11 +353,11 @@ export default function KiteAIPage() {
 
                   <CardContent className="flex flex-col gap-4">
                     <CardDescription className="line-clamp-2 text-zinc-400">
-                      {agent.description}
+                      {agent.description ?? agent.metadataURI ?? "On-chain agent"}
                     </CardDescription>
 
                     <div className="flex flex-wrap gap-1.5">
-                      {agent.capabilities.map((cap) => (
+                      {(agent.capabilities ?? []).map((cap) => (
                         <span
                           key={cap}
                           className="rounded-md bg-zinc-800 px-2 py-0.5 text-[10px] text-zinc-400"
@@ -347,9 +368,9 @@ export default function KiteAIPage() {
                     </div>
 
                     <div className="flex items-center justify-between text-sm">
-                      <StarRating rating={agent.reputation} />
+                      <StarRating rating={agent.reputation ?? 0} />
                       <span className="text-xs text-zinc-500">
-                        {agent.totalTasks.toLocaleString()} tasks
+                        {(agent.totalTasks ?? 0).toLocaleString()} tasks
                       </span>
                     </div>
 
@@ -811,9 +832,14 @@ export default function KiteAIPage() {
                           <Badge variant="outline" className="border-purple-500/30 bg-purple-500/10 text-purple-400 text-[10px]">
                             {rep.identityTier} Tier
                           </Badge>
-                          <Badge variant="outline" className={`text-[10px] ${rep.standingIntentActive ? "border-green-500/30 bg-green-500/10 text-green-400" : "border-red-500/30 bg-red-500/10 text-red-400"}`}>
-                            {rep.standingIntentActive ? "SI Active" : "SI Inactive"}
+                          <Badge variant="outline" className={`text-[10px] ${rep.standingIntentActive !== false ? "border-green-500/30 bg-green-500/10 text-green-400" : "border-red-500/30 bg-red-500/10 text-red-400"}`}>
+                            {rep.standingIntentActive !== false ? "SI Active" : "SI Inactive"}
                           </Badge>
+                          {rep.isActive !== undefined && (
+                            <Badge variant="outline" className={`text-[10px] ${rep.isActive ? "border-green-500/30 bg-green-500/10 text-green-400" : "border-zinc-500/30 bg-zinc-500/10 text-zinc-400"}`}>
+                              {rep.isActive ? "Active" : "Inactive"}
+                            </Badge>
+                          )}
                         </div>
                       </div>
 
@@ -834,7 +860,7 @@ export default function KiteAIPage() {
                         <div className="rounded-lg border border-zinc-800 bg-zinc-950/50 p-3">
                           <p className="text-[10px] text-zinc-500">Success Rate</p>
                           <p className="mt-1 text-lg font-bold text-green-400">
-                            {rep.successRate}%
+                            {rep.successRate ?? (rep.dimensions?.reliability ? Math.round(rep.dimensions.reliability) : 0)}%
                           </p>
                         </div>
                         <div className="rounded-lg border border-zinc-800 bg-zinc-950/50 p-3">

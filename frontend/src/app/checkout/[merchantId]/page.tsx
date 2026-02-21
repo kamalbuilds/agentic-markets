@@ -108,10 +108,10 @@ export default function CheckoutPage() {
   const currentStatus: TxStatus = isConfirmed
     ? "success"
     : isConfirming
-    ? "confirming"
-    : isWritePending
-    ? "pending"
-    : txStatus;
+      ? "confirming"
+      : isWritePending
+        ? "pending"
+        : txStatus;
 
   const [showQR, setShowQR] = useState(false);
   const [qrCopied, setQrCopied] = useState(false);
@@ -456,7 +456,7 @@ export default function CheckoutPage() {
                   This transaction is secured by {chainMeta.name} smart contracts.
                   {isHedera
                     ? " On Hedera, use ERC-20 (DDSC) for payments."
-                    : " Gas fees are sponsored by the ADI Paymaster -- you pay nothing extra."}
+                    : " Gas fees are sponsored by the ADI Paymasteryou pay nothing extra."}
                 </p>
               </div>
 

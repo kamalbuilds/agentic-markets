@@ -73,8 +73,8 @@ function StarRating({ rating }: { rating: number }) {
         <Star
           key={i}
           className={`size-3.5 ${i < Math.round(rating)
-              ? "fill-yellow-400 text-yellow-400"
-              : "fill-none text-zinc-600"
+            ? "fill-yellow-400 text-yellow-400"
+            : "fill-none text-zinc-600"
             }`}
         />
       ))}
@@ -322,7 +322,7 @@ export default function AgentMarketplacePage() {
         />
         {agentCount > 0
           ? `${agentCount} agent${agentCount !== 1 ? "s" : ""} registered on AgentRegistry (${contracts.agentRegistry.slice(0, 10)}...)`
-          : "Connected to AgentRegistry -- no agents registered yet"}
+          : "Connected to AgentRegistryno agents registered yet"}
       </div>
     </section>
   );

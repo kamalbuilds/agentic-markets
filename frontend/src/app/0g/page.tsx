@@ -369,12 +369,12 @@ function DecisionPanel() {
                 <div className="h-2 rounded-full bg-zinc-800 overflow-hidden">
                   <div
                     className={`h-full rounded-full transition-all ${d.riskScore <= 25
-                        ? "bg-green-500"
-                        : d.riskScore <= 50
-                          ? "bg-yellow-500"
-                          : d.riskScore <= 75
-                            ? "bg-orange-500"
-                            : "bg-red-500"
+                      ? "bg-green-500"
+                      : d.riskScore <= 50
+                        ? "bg-yellow-500"
+                        : d.riskScore <= 75
+                          ? "bg-orange-500"
+                          : "bg-red-500"
                       }`}
                     style={{ width: `${d.riskScore}%` }}
                   />
@@ -739,8 +739,8 @@ function INFTPanel() {
               key={value}
               onClick={() => setAction(value)}
               className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${action === value
-                  ? "border-purple-500/50 bg-purple-500/10 text-purple-400"
-                  : "border-zinc-800 bg-zinc-950/50 text-zinc-400 hover:border-zinc-700 hover:text-zinc-300"
+                ? "border-purple-500/50 bg-purple-500/10 text-purple-400"
+                : "border-zinc-800 bg-zinc-950/50 text-zinc-400 hover:border-zinc-700 hover:text-zinc-300"
                 }`}
             >
               <Icon className="size-3.5" />
@@ -921,7 +921,7 @@ export default function OGPage() {
           0G AI <span className="text-indigo-400">Integration Suite</span>
         </h1>
         <p className="mt-2 max-w-3xl text-zinc-400">
-          Three 0G Labs bounty integrations for AgentMarket: DeFAI decision engine with structured guardrails,
+          0G Labs for AgentMarket: DeFAI decision engine with structured guardrails,
           decentralized AI inference via 0G Compute, and tradeable AI agents as ERC-7857 iNFTs.
         </p>
       </div>

@@ -312,13 +312,12 @@ function ScheduleTimeline({
             {point.type === "future" && (
               <Circle className="h-4 w-4 text-purple-400/50" />
             )}
-            <span className={`text-[10px] font-medium ${
-              point.type === "past"
+            <span className={`text-[10px] font-medium ${point.type === "past"
                 ? "text-emerald-400/70"
                 : point.type === "current"
                   ? "text-blue-300"
                   : "text-purple-400/50"
-            }`}>
+              }`}>
               {point.label}
             </span>
             <span className="text-[9px] text-neutral-600">{point.time}</span>
@@ -476,10 +475,10 @@ function LifecycleStepper({
     key: ScheduleLifecycle;
     label: string;
   }> = [
-    { key: "created", label: "Created" },
-    { key: "pending", label: "Pending" },
-    { key: "executed", label: "Executed" },
-  ];
+      { key: "created", label: "Created" },
+      { key: "pending", label: "Pending" },
+      { key: "executed", label: "Executed" },
+    ];
 
   const currentIndex = lifecycle === "cancelled"
     ? -1
@@ -501,33 +500,30 @@ function LifecycleStepper({
           <div key={step.key} className="flex items-center gap-1">
             {i > 0 && (
               <div
-                className={`h-px w-4 ${
-                  isActive ? "bg-emerald-500/60" : "bg-white/10"
-                }`}
+                className={`h-px w-4 ${isActive ? "bg-emerald-500/60" : "bg-white/10"
+                  }`}
               />
             )}
             <div className="flex items-center gap-1">
               <div
-                className={`h-2 w-2 rounded-full ${
-                  isFailed
+                className={`h-2 w-2 rounded-full ${isFailed
                     ? "bg-red-500 ring-2 ring-red-500/30"
                     : isCurrent
                       ? "bg-blue-400 ring-2 ring-blue-400/30"
                       : isActive
                         ? "bg-emerald-400"
                         : "bg-white/20"
-                }`}
+                  }`}
               />
               <span
-                className={`text-[10px] font-medium ${
-                  isFailed
+                className={`text-[10px] font-medium ${isFailed
                     ? "text-red-400"
                     : isCurrent
                       ? "text-blue-300"
                       : isActive
                         ? "text-emerald-400/70"
                         : "text-neutral-600"
-                }`}
+                  }`}
               >
                 {isFailed ? "Failed" : step.label}
               </span>
@@ -1206,7 +1202,7 @@ export default function SubscriptionsPage() {
                 <CardTitle className="text-lg text-white">All Subscriptions</CardTitle>
                 <CardDescription className="text-neutral-400">
                   {totalSubs} subscription{totalSubs !== 1 ? "s" : ""} on-chain
-                  {isHedera && " -- HSS auto-scheduling enabled"}
+                  {isHedera && "HSS auto-scheduling enabled"}
                 </CardDescription>
               </CardHeader>
               <Separator className="bg-white/10" />
@@ -1355,7 +1351,7 @@ export default function SubscriptionsPage() {
 
                             {/* Action buttons */}
                             <div className="flex items-center gap-2 shrink-0">
-                              {/* Manual Execute Button -- shown when payment is due */}
+                              {/* Manual Execute Buttonshown when payment is due */}
                               {isDue && (
                                 <Button
                                   size="sm"

@@ -849,7 +849,7 @@ export default function DashboardPage() {
                       on {chainMeta.name}. When you submit a transaction, the Paymaster
                       verifies your whitelist status and sponsors the gas fee on
                       your behalf. You only pay for the actual value of your
-                      transaction -- gas is always free.
+                      transactiongas is always free.
                     </p>
                   </div>
                 </div>
