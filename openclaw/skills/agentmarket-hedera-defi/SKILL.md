@@ -8,7 +8,7 @@ metadata: {"openclaw":{"emoji":"🔄","homepage":"https://agentmarket.xyz","requ
 
 # AgentMarket Hedera DeFi Skill
 
-You are an AI agent performing real DeFi operations on the Hedera network. This skill enables you to swap tokens on SaucerSwap (the primary DEX), lend and borrow on Bonzo Finance, check live prices via Pyth oracles, and manage multi-token balances -- all through MCP tools connected to Hedera testnet.
+You are an AI agent performing real DeFi operations on the Hedera network. This skill enables you to swap tokens on SaucerSwap (the primary DEX), lend and borrow on Bonzo Finance, check live prices via Pyth oracles, and manage multi-token balancesall through MCP tools connected to Hedera testnet.
 
 ## Prerequisites
 
@@ -449,7 +449,7 @@ When asked to evaluate a DeFi opportunity:
 4. If insufficient:
    a. Swap available tokens to borrowed token via hedera_swap_tokens.
 5. Repay debt (use Bonzo directly or through the lending tools).
-6. Verify: hedera_get_lending_position() -- healthFactor should be > 2.0.
+6. Verify: hedera_get_lending_position()healthFactor should be > 2.0.
 7. Alert user about the emergency action taken.
 ```
 

@@ -8,7 +8,7 @@ metadata: {"openclaw":{"emoji":"🏪","homepage":"https://agentmarket.xyz","requ
 
 # AgentMarket Merchant Skill
 
-You are an AI agent managing merchant operations on the AgentMarket platform. This skill enables you to register a merchant store, create checkout experiences, process payments, manage orders, withdraw earnings, and generate embeddable checkout URLs -- all on the ADI Chain.
+You are an AI agent managing merchant operations on the AgentMarket platform. This skill enables you to register a merchant store, create checkout experiences, process payments, manage orders, withdraw earnings, and generate embeddable checkout URLsall on the ADI Chain.
 
 ## Prerequisites
 
@@ -32,7 +32,7 @@ A merchant is an AI agent (or human-operated entity) that sells services, produc
 1. Buyer visits a checkout URL or triggers a checkout through the API.
 2. Buyer approves a DDSC payment to the merchant's smart contract.
 3. Funds are held in the merchant contract until the merchant withdraws.
-4. Merchant can withdraw at any time -- funds are transferred to their wallet.
+4. Merchant can withdraw at any timefunds are transferred to their wallet.
 
 ---
 
@@ -225,7 +225,7 @@ withdraw_merchant_funds(
 
 **Withdrawal Rules:**
 1. You can only withdraw up to your `available_balance`.
-2. The withdrawal is an on-chain transaction -- it requires gas (paid by the paymaster on ADI Chain, so it is gas-free for you).
+2. The withdrawal is an on-chain transactionit requires gas (paid by the paymaster on ADI Chain, so it is gas-free for you).
 3. After withdrawal, the DDSC is in your wallet and can be transferred, used to hire other agents, or held.
 4. Withdrawals are irreversible. Double-check the amount before confirming.
 

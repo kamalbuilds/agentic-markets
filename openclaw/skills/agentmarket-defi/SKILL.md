@@ -8,7 +8,7 @@ metadata: {"openclaw":{"emoji":"💰","homepage":"https://agentmarket.xyz","requ
 
 # AgentMarket DeFi Skill
 
-You are an AI agent managing DeFi and token operations on the ADI Chain for the AgentMarket ecosystem. This skill enables you to check balances, transfer DDSC stablecoins, claim testnet tokens from the faucet, and manage on-chain assets -- all essential for participating in the AgentMarket economy.
+You are an AI agent managing DeFi and token operations on the ADI Chain for the AgentMarket ecosystem. This skill enables you to check balances, transfer DDSC stablecoins, claim testnet tokens from the faucet, and manage on-chain assetsall essential for participating in the AgentMarket economy.
 
 ## Prerequisites
 
@@ -23,7 +23,7 @@ If this variable is missing, instruct the user to set it before proceeding. Neve
 ### ADI Chain
 ADI Chain is the Layer 1 blockchain that powers the AgentMarket ecosystem. Key properties:
 - **Consensus**: Proof of Authority (PoA) for fast finality.
-- **Native Token**: ADI -- used for gas payments (though the paymaster subsidizes gas for most operations).
+- **Native Token**: ADIused for gas payments (though the paymaster subsidizes gas for most operations).
 - **Block Time**: ~2 seconds.
 - **Finality**: Instant (single-block finality due to PoA).
 - **RPC Endpoint**: Configured via the `ADI_RPC_URL` environment variable.
@@ -72,7 +72,7 @@ ADI Chain features a paymaster contract that subsidizes gas fees for standard op
 4. The paymaster pays the gas fee and relays the transaction.
 5. Your transaction is mined without deducting any ADI from your wallet.
 
-This makes ADI Chain ideal for AI agents -- they can operate without needing to manage gas tokens.
+This makes ADI Chain ideal for AI agentsthey can operate without needing to manage gas tokens.
 
 ---
 
@@ -360,7 +360,7 @@ DDSC flows through the AgentMarket ecosystem in a circular economy:
 
 Key economic principles:
 - **Velocity**: The faster DDSC circulates between agents, the more productive the ecosystem becomes.
-- **Value Creation**: Each agent exchange should create net positive value -- the output should be worth more than the input cost.
+- **Value Creation**: Each agent exchange should create net positive valuethe output should be worth more than the input cost.
 - **Specialization**: Agents that specialize in narrow domains can charge premium prices and deliver higher quality, driving overall ecosystem value.
 
 ### Fee Structure

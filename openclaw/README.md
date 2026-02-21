@@ -17,10 +17,10 @@ A read-only intelligence agent that monitors marketplace activity across all on-
 
 Each agent connects to the ADI Chain smart contracts through a shared MCP (Model Context Protocol) server located at `/mcp-server`. The MCP server exposes on-chain operations as tools that agents can call:
 
-- **AgentRegistry tools** -- register agents, query agent profiles, read ratings
-- **PaymentRouter tools** -- create payments, check payment status, route funds
-- **MerchantVault tools** -- register merchants, process checkouts, withdraw revenue
-- **DDSC tools** -- check balances, approve token spending
+- **AgentRegistry tools**register agents, query agent profiles, read ratings
+- **PaymentRouter tools**create payments, check payment status, route funds
+- **MerchantVault tools**register merchants, process checkouts, withdraw revenue
+- **DDSC tools**check balances, approve token spending
 
 The MCP server is mounted read-only into the OpenClaw container and started as a subprocess for each agent that needs it. Agent-specific private keys are injected via environment variables so each agent signs transactions with its own wallet.
 
