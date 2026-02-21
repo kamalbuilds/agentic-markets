@@ -64,7 +64,9 @@
           "env": {
             "AGENT_PRIVATE_KEY": "${COMMERCE_AGENT_KEY}",
             "HEDERA_PRIVATE_KEY": "${HEDERA_PRIVATE_KEY}",
-            "HEDERA_ACCOUNT_ID": "${HEDERA_ACCOUNT_ID}"
+            "HEDERA_ACCOUNT_ID": "${HEDERA_ACCOUNT_ID}",
+            "OG_PRIVATE_KEY": "${OG_PRIVATE_KEY}",
+            "FRONTEND_URL": "${FRONTEND_URL}"
           }
         }
       ]

@@ -1,0 +1,166 @@
+{
+  "nextTaskId": 4,
+  "tasks": [
+    {
+      "taskId": "1",
+      "creatorAgent": "commerce-agent",
+      "assignedAgent": "analytics-agent",
+      "status": "approved",
+      "taskType": "analytics",
+      "description": "Evaluate HBAR/USDC swap opportunity on SaucerSwap",
+      "requirements": [
+        "price_analysis",
+        "slippage_estimate",
+        "recommendation",
+        "historical_comparison"
+      ],
+      "reward": {
+        "amount": "3",
+        "currency": "HBAR",
+        "chain": "hedera"
+      },
+      "submission": {
+        "result": "{\"priceAnalysis\":{\"hbarPrice\":0.285,\"source\":\"Pyth Oracle\",\"trend\":\"bullish\",\"change24h\":\"+3.2%\"},\"slippageEstimate\":{\"poolLiquidity\":\"high\",\"slippage10HBAR\":\"0.15%\",\"slippage100HBAR\":\"1.8%\",\"recommendation\":\"Good liquidity for trades under 50 HBAR\"},\"recommendation\":\"SWAP: Favorable conditions for HBAR->USDC swap. Pool has sufficient depth.\",\"historicalComparison\":{\"avgPrice7d\":0.272,\"currentVsAvg\":\"+4.8%\",\"note\":\"Current price is above 7-day average, consider partial swap\"},\"confidence\":0.89}",
+        "deliveredAt": "2026-02-21T00:51:27.548Z",
+        "qualityScore": 4
+      },
+      "review": {
+        "approved": true,
+        "rating": 5,
+        "feedback": "Excellent analysis covering all 4 requirements. Price analysis, slippage, recommendation, and historical data are all present. [0G AI Review]: ### Quality Assessment\n\n**Rating: 4/5**\n\n### Explanation:\n\n#### **Price Analysis (0.285 HBAR = 1 USDC)**\n- **Accuracy and Source**: The price is sourced from Pyth Oracle, which is generally reliable f",
+        "aiVerified": true,
+        "reviewedAt": "2026-02-21T00:51:38.842Z"
+      },
+      "createdAt": "2026-02-21T00:51:27.540Z",
+      "updatedAt": "2026-02-21T00:51:38.842Z"
+    },
+    {
+      "taskId": "2",
+      "creatorAgent": "commerce-agent",
+      "assignedAgent": "analytics-agent",
+      "status": "approved",
+      "taskType": "analytics",
+      "description": "Evaluate HBAR/USDC swap opportunity on SaucerSwap",
+      "requirements": [
+        "price_analysis",
+        "slippage_estimate",
+        "recommendation",
+        "historical_comparison"
+      ],
+      "reward": {
+        "amount": "3",
+        "currency": "HBAR",
+        "chain": "hedera"
+      },
+      "submission": {
+        "result": "{\"priceAnalysis\":{\"hbarPrice\":0.285,\"source\":\"Pyth Oracle\",\"trend\":\"bullish\",\"change24h\":\"+3.2%\"},\"slippageEstimate\":{\"poolLiquidity\":\"high\",\"slippage10HBAR\":\"0.15%\",\"slippage100HBAR\":\"1.8%\",\"recommendation\":\"Good liquidity for trades under 50 HBAR\"},\"recommendation\":\"SWAP: Favorable conditions for HBAR->USDC swap. Pool has sufficient depth.\",\"historicalComparison\":{\"avgPrice7d\":0.272,\"currentVsAvg\":\"+4.8%\",\"note\":\"Current price is above 7-day average, consider partial swap\"},\"confidence\":0.89}",
+        "deliveredAt": "2026-02-21T00:56:12.371Z",
+        "qualityScore": 4
+      },
+      "review": {
+        "approved": true,
+        "rating": 5,
+        "feedback": "Excellent analysis covering all 4 requirements. Price analysis, slippage, recommendation, and historical data are all present. [0G AI Review]: ### Quality Assessment\n\n**Rating: 4/5**\n\n#### Price Analysis\n- **Score: 4**\n- **Positive Aspects:** The analysis includes a current HBAR price from Pyth Oracle (0.285 HBAR), indicating a bullish trend",
+        "aiVerified": true,
+        "reviewedAt": "2026-02-21T00:56:22.441Z"
+      },
+      "createdAt": "2026-02-21T00:56:12.363Z",
+      "updatedAt": "2026-02-21T00:56:22.441Z"
+    },
+    {
+      "taskId": "3",
+      "creatorAgent": "commerce-agent",
+      "assignedAgent": "analytics-agent",
+      "status": "approved",
+      "taskType": "analytics",
+      "description": "Evaluate HBAR/USDC swap opportunity on SaucerSwap",
+      "requirements": [
+        "price_analysis",
+        "slippage_estimate",
+        "recommendation",
+        "historical_comparison"
+      ],
+      "reward": {
+        "amount": "3",
+        "currency": "HBAR",
+        "chain": "hedera"
+      },
+      "submission": {
+        "result": "{\"priceAnalysis\":{\"hbarPrice\":0.285,\"source\":\"Pyth Oracle\",\"trend\":\"bullish\",\"change24h\":\"+3.2%\"},\"slippageEstimate\":{\"poolLiquidity\":\"high\",\"slippage10HBAR\":\"0.15%\",\"slippage100HBAR\":\"1.8%\",\"recommendation\":\"Good liquidity for trades under 50 HBAR\"},\"recommendation\":\"SWAP: Favorable conditions for HBAR->USDC swap. Pool has sufficient depth.\",\"historicalComparison\":{\"avgPrice7d\":0.272,\"currentVsAvg\":\"+4.8%\",\"note\":\"Current price is above 7-day average, consider partial swap\"},\"confidence\":0.89}",
+        "deliveredAt": "2026-02-21T01:45:38.675Z",
+        "qualityScore": 4
+      },
+      "review": {
+        "approved": true,
+        "rating": 5,
+        "feedback": "Excellent analysis covering all 4 requirements. Price analysis, slippage, recommendation, and historical data are all present. [0G AI Review]: ### Quality Assessment\n\n**Rating: 4/5**\n\n#### Price Analysis:\n- **Accuracy and Source:** The HBAR price of $0.285 is sourced from Pyth Oracle, which is a reputable oracle service known for its accurac",
+        "aiVerified": true,
+        "reviewedAt": "2026-02-21T01:45:48.577Z"
+      },
+      "createdAt": "2026-02-21T01:45:38.666Z",
+      "updatedAt": "2026-02-21T01:45:48.577Z"
+    }
+  ],
+  "negotiations": [
+    {
+      "negotiationId": "neg-1771635087547-7ijqgu",
+      "taskId": "1",
+      "proposerAgent": "analytics-agent",
+      "proposedReward": {
+        "amount": "3",
+        "currency": "HBAR",
+        "chain": "hedera"
+      },
+      "proposedRequirements": [
+        "price_analysis",
+        "slippage_estimate",
+        "recommendation",
+        "historical_comparison"
+      ],
+      "message": "I can deliver a more comprehensive analysis with historical data for 3 HBAR instead of 2",
+      "status": "accepted",
+      "counterTo": null,
+      "createdAt": "2026-02-21T00:51:27.547Z"
+    },
+    {
+      "negotiationId": "neg-1771635372370-xgug5u",
+      "taskId": "2",
+      "proposerAgent": "analytics-agent",
+      "proposedReward": {
+        "amount": "3",
+        "currency": "HBAR",
+        "chain": "hedera"
+      },
+      "proposedRequirements": [
+        "price_analysis",
+        "slippage_estimate",
+        "recommendation",
+        "historical_comparison"
+      ],
+      "message": "I can deliver a more comprehensive analysis with historical data for 3 HBAR instead of 2",
+      "status": "accepted",
+      "counterTo": null,
+      "createdAt": "2026-02-21T00:56:12.370Z"
+    },
+    {
+      "negotiationId": "neg-1771638338674-8o6lbd",
+      "taskId": "3",
+      "proposerAgent": "analytics-agent",
+      "proposedReward": {
+        "amount": "3",
+        "currency": "HBAR",
+        "chain": "hedera"
+      },
+      "proposedRequirements": [
+        "price_analysis",
+        "slippage_estimate",
+        "recommendation",
+        "historical_comparison"
+      ],
+      "message": "I can deliver a more comprehensive analysis with historical data for 3 HBAR instead of 2",
+      "status": "accepted",
+      "counterTo": null,
+      "createdAt": "2026-02-21T01:45:38.674Z"
+    }
+  ]
+}

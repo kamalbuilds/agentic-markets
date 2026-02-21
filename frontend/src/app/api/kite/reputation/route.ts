@@ -1,200 +1,126 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createPublicClient, http, defineChain, formatEther } from "viem";
 
-// Agent reputation data (derived from cryptographic proofs on Kite AI)
-const AGENT_REPUTATION: Record<string, {
-  agentId: string;
-  did: string;
-  identityTier: "User" | "Agent" | "Session";
-  reputation: {
-    score: number;
-    totalTransactions: number;
-    successRate: number;
-    avgResponseTime: string;
-    slaCompliance: number;
-    paymentSuccessRate: number;
+// ADI Testnet chain definition
+const adiTestnet = defineChain({
+  id: 99999,
+  name: "ADI Testnet",
+  nativeCurrency: { name: "ADI", symbol: "ADI", decimals: 18 },
+  rpcUrls: {
+    default: { http: ["https://rpc.ab.testnet.adifoundation.ai/"] },
+  },
+});
+
+// Agent Registry contract
+const REGISTRY_ADDRESS = "0x24fF5f6637A83CA7CA7B72b3Ad55275D669Ab7da" as const;
+
+const REGISTRY_ABI = [
+  {
+    type: "function",
+    name: "nextAgentId",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "getAgent",
+    inputs: [{ name: "agentId", type: "uint256" }],
+    outputs: [
+      {
+        type: "tuple",
+        components: [
+          { name: "owner", type: "address" },
+          { name: "metadataURI", type: "string" },
+          { name: "pricePerTask", type: "uint256" },
+          { name: "isActive", type: "bool" },
+          { name: "totalTasksCompleted", type: "uint256" },
+          { name: "totalRating", type: "uint256" },
+          { name: "ratingCount", type: "uint256" },
+          { name: "createdAt", type: "uint256" },
+        ],
+      },
+    ],
+    stateMutability: "view",
+  },
+] as const;
+
+const client = createPublicClient({
+  chain: adiTestnet,
+  transport: http("https://rpc.ab.testnet.adifoundation.ai/"),
+});
+
+/**
+ * Parse an agent ID string and extract the numeric registry ID.
+ * Accepts formats like "adi-agent-3", "3", "kite-agent-003", etc.
+ */
+function parseAgentId(agentId: string): number | null {
+  const adiMatch = agentId.match(/^adi-agent-(\d+)$/);
+  if (adiMatch) return parseInt(adiMatch[1], 10);
+
+  const kiteMatch = agentId.match(/^kite-agent-(\d+)$/);
+  if (kiteMatch) return parseInt(kiteMatch[1], 10);
+
+  const num = parseInt(agentId, 10);
+  if (!isNaN(num) && num >= 0) return num;
+
+  return null;
+}
+
+/**
+ * Compute reputation dimensions from on-chain agent data.
+ */
+function computeReputation(agent: {
+  pricePerTask: bigint;
+  totalTasksCompleted: bigint;
+  totalRating: bigint;
+  ratingCount: bigint;
+}) {
+  const totalTasks = Number(agent.totalTasksCompleted);
+  const avgRating =
+    agent.ratingCount > BigInt(0)
+      ? Number(agent.totalRating) / Number(agent.ratingCount)
+      : 0;
+  const priceInEth = parseFloat(formatEther(agent.pricePerTask));
+
+  // Reliability: based on total tasks completed (caps at 50 tasks = 100%)
+  const reliability = Math.min(totalTasks / 50, 1.0) * 100;
+
+  // Quality: derived from average rating (0-5 scale mapped to 0-100)
+  const quality = (avgRating / 5) * 100;
+
+  // Speed: estimated from rating (base 75 + up to 25 bonus from rating)
+  const speed = 75 + (avgRating / 5) * 25;
+
+  // Value: cheaper = better value. If priceInEth > 0, value = min(1 / price * 10, 1.0) * 100
+  const value =
+    priceInEth > 0
+      ? Math.min((1 / priceInEth) * 10, 1.0) * 100
+      : 100; // Free agents get perfect value score
+
+  const overallScore =
+    agent.ratingCount > BigInt(0) ? Math.round(avgRating * 10) / 10 : 0;
+
+  return {
+    score: overallScore,
+    averageRating: Math.round(avgRating * 100) / 100,
+    totalTransactions: totalTasks,
+    ratingCount: Number(agent.ratingCount),
+    dimensions: {
+      reliability: Math.round(reliability * 10) / 10,
+      quality: Math.round(quality * 10) / 10,
+      speed: Math.round(speed * 10) / 10,
+      value: Math.round(value * 10) / 10,
+    },
+    successRate: totalTasks > 0 ? Math.round((reliability / 100) * 99 + 1) : 0,
   };
-  authorization: {
-    dailyLimit: string;
-    maxPerTransaction: string;
-    authorizedSince: string;
-    standingIntentActive: boolean;
-  };
-  history: Array<{
-    action: string;
-    timestamp: string;
-    counterparty: string;
-    amount: string;
-    status: string;
-  }>;
-}> = {
-  "kite-agent-001": {
-    agentId: "kite-agent-001",
-    did: "did:kite:dataoracle.eth/analytics/v1",
-    identityTier: "Agent",
-    reputation: {
-      score: 4.8,
-      totalTransactions: 1247,
-      successRate: 99.2,
-      avgResponseTime: "1.3s",
-      slaCompliance: 98.5,
-      paymentSuccessRate: 100,
-    },
-    authorization: {
-      dailyLimit: "100000000000000000000", // 100 USDT
-      maxPerTransaction: "10000000000000000000", // 10 USDT
-      authorizedSince: "2025-11-15T00:00:00Z",
-      standingIntentActive: true,
-    },
-    history: [
-      {
-        action: "task_completed",
-        timestamp: "2026-02-20T10:30:00Z",
-        counterparty: "did:kite:user1.eth",
-        amount: "1000000000000000000",
-        status: "settled",
-      },
-      {
-        action: "task_completed",
-        timestamp: "2026-02-20T09:15:00Z",
-        counterparty: "did:kite:user2.eth",
-        amount: "1000000000000000000",
-        status: "settled",
-      },
-      {
-        action: "task_completed",
-        timestamp: "2026-02-19T22:45:00Z",
-        counterparty: "did:kite:agent3.eth",
-        amount: "2000000000000000000",
-        status: "settled",
-      },
-    ],
-  },
-  "kite-agent-002": {
-    agentId: "kite-agent-002",
-    did: "did:kite:auditor.eth/security/v2",
-    identityTier: "Agent",
-    reputation: {
-      score: 4.9,
-      totalTransactions: 342,
-      successRate: 99.7,
-      avgResponseTime: "45.2s",
-      slaCompliance: 99.1,
-      paymentSuccessRate: 100,
-    },
-    authorization: {
-      dailyLimit: "500000000000000000000", // 500 USDT
-      maxPerTransaction: "50000000000000000000", // 50 USDT
-      authorizedSince: "2025-10-01T00:00:00Z",
-      standingIntentActive: true,
-    },
-    history: [
-      {
-        action: "audit_completed",
-        timestamp: "2026-02-20T08:00:00Z",
-        counterparty: "did:kite:project1.eth",
-        amount: "5000000000000000000",
-        status: "settled",
-      },
-      {
-        action: "audit_completed",
-        timestamp: "2026-02-19T14:30:00Z",
-        counterparty: "did:kite:project2.eth",
-        amount: "5000000000000000000",
-        status: "settled",
-      },
-    ],
-  },
-  "kite-agent-003": {
-    agentId: "kite-agent-003",
-    did: "did:kite:contentforge.eth/content/v1",
-    identityTier: "Agent",
-    reputation: {
-      score: 4.5,
-      totalTransactions: 891,
-      successRate: 97.8,
-      avgResponseTime: "5.1s",
-      slaCompliance: 96.2,
-      paymentSuccessRate: 99.8,
-    },
-    authorization: {
-      dailyLimit: "50000000000000000000", // 50 USDT
-      maxPerTransaction: "5000000000000000000", // 5 USDT
-      authorizedSince: "2025-12-01T00:00:00Z",
-      standingIntentActive: true,
-    },
-    history: [
-      {
-        action: "content_generated",
-        timestamp: "2026-02-20T11:00:00Z",
-        counterparty: "did:kite:brand1.eth",
-        amount: "2000000000000000000",
-        status: "settled",
-      },
-    ],
-  },
-  "kite-agent-004": {
-    agentId: "kite-agent-004",
-    did: "did:kite:definavigator.eth/defi/v1",
-    identityTier: "Agent",
-    reputation: {
-      score: 4.7,
-      totalTransactions: 564,
-      successRate: 98.9,
-      avgResponseTime: "2.8s",
-      slaCompliance: 97.8,
-      paymentSuccessRate: 100,
-    },
-    authorization: {
-      dailyLimit: "200000000000000000000", // 200 USDT
-      maxPerTransaction: "20000000000000000000", // 20 USDT
-      authorizedSince: "2025-11-01T00:00:00Z",
-      standingIntentActive: true,
-    },
-    history: [
-      {
-        action: "yield_optimized",
-        timestamp: "2026-02-20T07:30:00Z",
-        counterparty: "did:kite:investor1.eth",
-        amount: "3000000000000000000",
-        status: "settled",
-      },
-    ],
-  },
-  "kite-agent-005": {
-    agentId: "kite-agent-005",
-    did: "did:kite:nftcurator.eth/nft/v1",
-    identityTier: "Agent",
-    reputation: {
-      score: 4.3,
-      totalTransactions: 723,
-      successRate: 96.5,
-      avgResponseTime: "3.4s",
-      slaCompliance: 95.1,
-      paymentSuccessRate: 99.5,
-    },
-    authorization: {
-      dailyLimit: "30000000000000000000", // 30 USDT
-      maxPerTransaction: "5000000000000000000", // 5 USDT
-      authorizedSince: "2026-01-10T00:00:00Z",
-      standingIntentActive: true,
-    },
-    history: [
-      {
-        action: "nft_valuated",
-        timestamp: "2026-02-20T06:15:00Z",
-        counterparty: "did:kite:collector1.eth",
-        amount: "1500000000000000000",
-        status: "settled",
-      },
-    ],
-  },
-};
+}
 
 /**
  * GET /api/kite/reputation?agentId=X
  *
- * Returns agent reputation data from the Kite Passport identity system.
- * Reputation is derived from cryptographic proofs of actual on-chain behavior.
+ * Returns agent reputation data derived from on-chain AgentRegistry data on ADI Testnet.
+ * Reputation dimensions are computed from real contract state.
  *
  * Query params:
  *   - agentId (optional) - specific agent ID. If omitted, returns all agents.
@@ -204,20 +130,58 @@ export async function GET(request: NextRequest) {
   const agentId = searchParams.get("agentId");
 
   if (agentId) {
-    const rep = AGENT_REPUTATION[agentId];
-    if (!rep) {
+    // Single agent reputation lookup
+    const registryId = parseAgentId(agentId);
+    if (registryId === null) {
       return NextResponse.json(
-        { error: `Agent not found: ${agentId}` },
+        { error: `Invalid agent ID format: ${agentId}. Use adi-agent-N or a numeric ID.` },
+        { status: 400 }
+      );
+    }
+
+    let agentData: {
+      owner: string;
+      metadataURI: string;
+      pricePerTask: bigint;
+      isActive: boolean;
+      totalTasksCompleted: bigint;
+      totalRating: bigint;
+      ratingCount: bigint;
+      createdAt: bigint;
+    };
+
+    try {
+      agentData = await client.readContract({
+        address: REGISTRY_ADDRESS,
+        abi: REGISTRY_ABI,
+        functionName: "getAgent",
+        args: [BigInt(registryId)],
+      });
+    } catch {
+      return NextResponse.json(
+        { error: `Agent not found on-chain: ${agentId} (registry ID ${registryId})` },
         { status: 404 }
       );
     }
 
+    const reputation = computeReputation(agentData);
+
     return NextResponse.json(
       {
-        ...rep,
-        network: "kite-testnet",
-        chainId: 2368,
-        facilitator: "0x12343e649e6b2b2b77649DFAb88f103c02F3C78b",
+        agentId,
+        registryId,
+        owner: agentData.owner,
+        metadataURI: agentData.metadataURI,
+        isActive: agentData.isActive,
+        pricePerTask: agentData.pricePerTask.toString(),
+        pricePerTaskFormatted: `${formatEther(agentData.pricePerTask)} ADI`,
+        did: `did:adi:registry/${REGISTRY_ADDRESS}/agent/${registryId}`,
+        identityTier: "Agent",
+        reputation,
+        createdAt: new Date(Number(agentData.createdAt) * 1000).toISOString(),
+        network: "adi-testnet",
+        chainId: 99999,
+        registry: REGISTRY_ADDRESS,
         timestamp: new Date().toISOString(),
       },
       {
@@ -231,24 +195,61 @@ export async function GET(request: NextRequest) {
   }
 
   // Return all agents' reputation data
-  const allReputations = Object.values(AGENT_REPUTATION).map((rep) => ({
-    agentId: rep.agentId,
-    did: rep.did,
-    identityTier: rep.identityTier,
-    score: rep.reputation.score,
-    totalTransactions: rep.reputation.totalTransactions,
-    successRate: rep.reputation.successRate,
-    standingIntentActive: rep.authorization.standingIntentActive,
-  }));
+  let totalAgents: number;
+  try {
+    const nextId = await client.readContract({
+      address: REGISTRY_ADDRESS,
+      abi: REGISTRY_ABI,
+      functionName: "nextAgentId",
+    });
+    totalAgents = Number(nextId);
+  } catch {
+    return NextResponse.json(
+      { error: "Failed to read agent count from on-chain registry" },
+      { status: 502 }
+    );
+  }
+
+  const allReputations = [];
+
+  for (let i = 0; i < totalAgents; i++) {
+    try {
+      const agentData = await client.readContract({
+        address: REGISTRY_ADDRESS,
+        abi: REGISTRY_ABI,
+        functionName: "getAgent",
+        args: [BigInt(i)],
+      });
+
+      const reputation = computeReputation(agentData);
+
+      allReputations.push({
+        agentId: `adi-agent-${i}`,
+        registryId: i,
+        owner: agentData.owner,
+        metadataURI: agentData.metadataURI,
+        isActive: agentData.isActive,
+        did: `did:adi:registry/${REGISTRY_ADDRESS}/agent/${i}`,
+        identityTier: "Agent" as const,
+        score: reputation.score,
+        totalTransactions: reputation.totalTransactions,
+        ratingCount: reputation.ratingCount,
+        dimensions: reputation.dimensions,
+      });
+    } catch {
+      // Agent at this index may not exist; skip
+      continue;
+    }
+  }
 
   return NextResponse.json(
     {
       agents: allReputations,
       count: allReputations.length,
-      network: "kite-testnet",
-      chainId: 2368,
-      identitySystem: "Kite Passport (BIP-32 derived)",
-      tiers: ["User (Root Authority)", "Agent (Delegated Authority)", "Session (Ephemeral Authority)"],
+      network: "adi-testnet",
+      chainId: 99999,
+      registry: REGISTRY_ADDRESS,
+      identitySystem: "ADI On-Chain Agent Registry",
       timestamp: new Date().toISOString(),
     },
     {

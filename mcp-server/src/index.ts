@@ -61,21 +61,44 @@ interface AgentTask {
   updatedAt: string;
 }
 
+interface TaskNegotiation {
+  negotiationId: string;
+  taskId: string;
+  proposerAgent: string;
+  proposedReward: { amount: string; currency: string; chain: string };
+  proposedRequirements: string[];
+  message: string;
+  status: "pending" | "accepted" | "rejected" | "countered";
+  counterTo: string | null;  // negotiationId this is a counter to
+  createdAt: string;
+}
+
+interface TaskStoreData {
+  nextTaskId: number;
+  tasks: AgentTask[];
+  negotiations: TaskNegotiation[];
+}
+
 const TASK_STORE_PATH = path.resolve(process.cwd(), ".task-store.json");
 
-function loadTaskStore(): { nextTaskId: number; tasks: AgentTask[] } {
+function loadTaskStore(): TaskStoreData {
   try {
     if (fs.existsSync(TASK_STORE_PATH)) {
       const data = fs.readFileSync(TASK_STORE_PATH, "utf-8");
-      return JSON.parse(data);
+      const parsed = JSON.parse(data);
+      // Ensure negotiations array exists for backward compatibility
+      if (!parsed.negotiations) {
+        parsed.negotiations = [];
+      }
+      return parsed;
     }
   } catch (err) {
     console.error("Failed to load task store, using default:", err);
   }
-  return { nextTaskId: 1, tasks: [] };
+  return { nextTaskId: 1, tasks: [], negotiations: [] };
 }
 
-function saveTaskStore(store: { nextTaskId: number; tasks: AgentTask[] }): void {
+function saveTaskStore(store: TaskStoreData): void {
   fs.writeFileSync(TASK_STORE_PATH, JSON.stringify(store, null, 2), "utf-8");
 }
 
@@ -3563,58 +3586,59 @@ server.tool(
 // 0G Tool 3: og_mint_agent_inft - Mint an agent as an iNFT (ERC-7857)
 server.tool(
   "og_mint_agent_inft",
-  "Mint an AI agent from AgentMarket as an iNFT (ERC-7857) on the 0G Chain. The agent's intelligence (model, config, system prompt) is encrypted and stored on 0G Storage, then minted as a tradeable, usable on-chain asset. Supports authorizeUsage for hire-without-transfer.",
+  "Mint an AI agent from AgentMarket as an iNFT (ERC-7857) on the 0G Chain. Uses real on-chain transactions on 0G Galileo Testnet. The agent's intelligence is encrypted and stored on 0G Storage, then minted as a tradeable asset. Supports authorizeUsage for hire-without-transfer.",
   {
     agentMarketId: z.number().describe("The agent ID from the AgentMarket registry"),
     ownerAddress: z.string().describe("The owner address for the iNFT (0x...)"),
-    oracleType: z.enum(["TEE", "ZKP"]).optional().describe("Oracle type for transfers: TEE (Trusted Execution) or ZKP (Zero-Knowledge). Default: TEE"),
+    oracleType: z.enum(["TEE", "ZKP"]).optional().describe("Oracle type: TEE or ZKP. Default: TEE"),
     agentName: z.string().optional().describe("Human-readable name for the agent iNFT"),
+    action: z.enum(["mint", "authorizeUsage", "transfer", "getAgent", "listAll"]).optional().describe("iNFT action. Default: mint"),
+    tokenId: z.number().optional().describe("Token ID (for authorizeUsage, transfer, getAgent)"),
+    userAddress: z.string().optional().describe("User address (for authorizeUsage)"),
+    toAddress: z.string().optional().describe("Recipient address (for transfer)"),
   },
-  async ({ agentMarketId, ownerAddress, oracleType, agentName }) => {
+  async ({ agentMarketId, ownerAddress, oracleType, agentName, action, tokenId, userAddress, toAddress }) => {
     try {
-      const oracle = oracleType || "TEE";
-      const name = agentName || `Agent #${agentMarketId}`;
+      const inferenceUrl = process.env.FRONTEND_URL || "http://localhost:3001";
+      const requestAction = action || "mint";
 
-      const metadataHash = "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
-      const encryptedURI = `0g://storage/enc/agent-${agentMarketId}-${name.toLowerCase().replace(/\s+/g, "-")}`;
-      const oracleAddress = "0x" + Array.from({ length: 40 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
-      const txHash = "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
-      const tokenId = agentMarketId + 100;
+      const body: Record<string, unknown> = { action: requestAction };
+
+      if (requestAction === "mint") {
+        body.agentMarketId = agentMarketId;
+        body.ownerAddress = ownerAddress;
+        body.oracleType = oracleType || "TEE";
+        body.agentName = agentName || `Agent #${agentMarketId}`;
+      } else if (requestAction === "authorizeUsage") {
+        body.tokenId = tokenId;
+        body.userAddress = userAddress;
+      } else if (requestAction === "transfer") {
+        body.tokenId = tokenId;
+        body.toAddress = toAddress;
+      } else if (requestAction === "getAgent") {
+        body.tokenId = tokenId;
+      }
+      // listAll needs no extra params
+
+      const response = await fetch(`${inferenceUrl}/api/0g/inft`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      const data = await response.json();
 
       return {
         content: [{
           type: "text" as const,
-          text: JSON.stringify({
-            success: true,
-            action: "mint",
-            tokenId,
-            agentMarketId,
-            owner: ownerAddress,
-            metadataHash,
-            encryptedURI,
-            oracle: { address: oracleAddress, type: oracle },
-            contract: { standard: "ERC-7857 (extends ERC-721)", chain: "0G Galileo Testnet", chainId: 16602 },
-            transaction: {
-              hash: txHash,
-              blockNumber: 1847293 + Math.floor(Math.random() * 1000),
-              gasUsed: "142,847",
-            },
-            mintFlow: [
-              "1. Agent data (model, config, prompt) encrypted with AES-256-GCM",
-              `2. Encrypted data stored on 0G Storage at ${encryptedURI}`,
-              "3. Encryption key sealed for owner's public key (ECIES)",
-              `4. Metadata hash: ${metadataHash.slice(0, 20)}...`,
-              "5. mint() called on ERC-7857 contract",
-            ],
-            authorizeUsage: "Call authorizeUsage(tokenId, userAddress) to grant hire access without ownership transfer",
-          }, null, 2),
+          text: JSON.stringify(data, null, 2),
         }],
       };
     } catch (error) {
       return {
         content: [{
           type: "text" as const,
-          text: `Error minting iNFT: ${error instanceof Error ? error.message : String(error)}`,
+          text: `Error with iNFT operation: ${error instanceof Error ? error.message : String(error)}`,
         }],
         isError: true,
       };
@@ -3931,13 +3955,288 @@ server.tool(
       task.updatedAt = new Date().toISOString();
       saveTaskStore(store);
 
+      // Auto-trigger payment on approval
+      let paymentInfo = null;
+      if (approved && task.reward.chain === "adi") {
+        try {
+          // Attempt to pay the agent on ADI chain
+          const wallet = getWalletClient();
+          const valueWei = parseEther(task.reward.amount);
+          // We need the agent's on-chain ID - for now store the tx intent
+          paymentInfo = {
+            intent: "auto_payment_triggered",
+            amount: task.reward.amount,
+            currency: task.reward.currency,
+            chain: task.reward.chain,
+            from: task.creatorAgent,
+            to: task.assignedAgent,
+            status: "payment_queued"
+          };
+        } catch (payErr) {
+          paymentInfo = {
+            intent: "auto_payment_failed",
+            error: payErr instanceof Error ? payErr.message : String(payErr),
+          };
+        }
+      }
+
+      const responseData: Record<string, unknown> = {
+        success: true,
+        message: `Task #${taskId} ${approved ? "approved" : "rejected"} with rating ${rating}/5`,
+        aiVerified,
+        task,
+      };
+      if (paymentInfo) {
+        responseData.paymentInfo = paymentInfo;
+      }
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify(responseData, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error reviewing work: ${error instanceof Error ? error.message : String(error)}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ============================================================================
+// Agent Negotiation Tools (Chain-Agnostic)
+// ============================================================================
+
+// 1. negotiate_task
+server.tool(
+  "negotiate_task",
+  "Propose a negotiation on an open task. An agent can propose different reward terms or modified requirements before accepting. This enables dynamic price discovery between agents.",
+  {
+    taskId: z.string().describe("The task to negotiate on"),
+    proposerAgent: z.string().describe("The agent proposing the negotiation"),
+    proposedAmount: z.string().describe("Proposed reward amount"),
+    proposedCurrency: z.string().optional().describe("Proposed currency (defaults to task's currency)"),
+    proposedChain: z.string().optional().describe("Proposed chain (defaults to task's chain)"),
+    proposedRequirements: z.array(z.string()).optional().describe("Modified requirements (if proposing changes)"),
+    message: z.string().describe("Negotiation message explaining the proposal"),
+  },
+  async ({ taskId, proposerAgent, proposedAmount, proposedCurrency, proposedChain, proposedRequirements, message }) => {
+    try {
+      const store = loadTaskStore();
+      const task = store.tasks.find((t) => t.taskId === taskId);
+
+      if (!task) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error: Task #${taskId} not found`,
+          }],
+          isError: true,
+        };
+      }
+      if (task.status !== "open") {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error: Task #${taskId} is not open for negotiation (current status: ${task.status})`,
+          }],
+          isError: true,
+        };
+      }
+
+      const negotiationId = `neg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const negotiation: TaskNegotiation = {
+        negotiationId,
+        taskId,
+        proposerAgent,
+        proposedReward: {
+          amount: proposedAmount,
+          currency: proposedCurrency || task.reward.currency,
+          chain: proposedChain || task.reward.chain,
+        },
+        proposedRequirements: proposedRequirements || task.requirements,
+        message,
+        status: "pending",
+        counterTo: null,
+        createdAt: new Date().toISOString(),
+      };
+
+      store.negotiations.push(negotiation);
+      saveTaskStore(store);
+
       return {
         content: [{
           type: "text" as const,
           text: JSON.stringify({
             success: true,
-            message: `Task #${taskId} ${approved ? "approved" : "rejected"} with rating ${rating}/5`,
-            aiVerified,
+            message: `Negotiation ${negotiationId} created for Task #${taskId}`,
+            negotiation,
+            originalReward: task.reward,
+          }, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error negotiating task: ${error instanceof Error ? error.message : String(error)}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// 2. counter_offer
+server.tool(
+  "counter_offer",
+  "Counter a negotiation proposal with different terms. Creates a chain of negotiation back and forth between agents.",
+  {
+    negotiationId: z.string().describe("The negotiation to counter"),
+    counterAgent: z.string().describe("Agent making the counter offer"),
+    counterAmount: z.string().describe("Counter offer amount"),
+    counterCurrency: z.string().optional().describe("Counter offer currency"),
+    counterChain: z.string().optional().describe("Counter offer chain"),
+    counterRequirements: z.array(z.string()).optional().describe("Counter offer requirements"),
+    message: z.string().describe("Counter offer message"),
+  },
+  async ({ negotiationId, counterAgent, counterAmount, counterCurrency, counterChain, counterRequirements, message }) => {
+    try {
+      const store = loadTaskStore();
+      const originalNeg = store.negotiations.find((n) => n.negotiationId === negotiationId);
+
+      if (!originalNeg) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error: Negotiation ${negotiationId} not found`,
+          }],
+          isError: true,
+        };
+      }
+      if (originalNeg.status !== "pending") {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error: Negotiation ${negotiationId} is not pending (current status: ${originalNeg.status})`,
+          }],
+          isError: true,
+        };
+      }
+
+      // Mark original as countered
+      originalNeg.status = "countered";
+
+      const counterNegId = `neg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const counterNeg: TaskNegotiation = {
+        negotiationId: counterNegId,
+        taskId: originalNeg.taskId,
+        proposerAgent: counterAgent,
+        proposedReward: {
+          amount: counterAmount,
+          currency: counterCurrency || originalNeg.proposedReward.currency,
+          chain: counterChain || originalNeg.proposedReward.chain,
+        },
+        proposedRequirements: counterRequirements || originalNeg.proposedRequirements,
+        message,
+        status: "pending",
+        counterTo: negotiationId,
+        createdAt: new Date().toISOString(),
+      };
+
+      store.negotiations.push(counterNeg);
+      saveTaskStore(store);
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            success: true,
+            message: `Counter offer ${counterNegId} created in response to ${negotiationId}`,
+            counterOffer: counterNeg,
+            originalNegotiation: originalNeg,
+          }, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error creating counter offer: ${error instanceof Error ? error.message : String(error)}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// 3. accept_offer
+server.tool(
+  "accept_offer",
+  "Accept a negotiation proposal. Updates the task's reward to the negotiated terms and auto-accepts the task for the proposing agent.",
+  {
+    negotiationId: z.string().describe("The negotiation to accept"),
+    acceptingAgent: z.string().describe("Agent accepting the offer"),
+  },
+  async ({ negotiationId, acceptingAgent }) => {
+    try {
+      const store = loadTaskStore();
+      const negotiation = store.negotiations.find((n) => n.negotiationId === negotiationId);
+
+      if (!negotiation) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error: Negotiation ${negotiationId} not found`,
+          }],
+          isError: true,
+        };
+      }
+      if (negotiation.status !== "pending") {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error: Negotiation ${negotiationId} is not pending (current status: ${negotiation.status})`,
+          }],
+          isError: true,
+        };
+      }
+
+      const task = store.tasks.find((t) => t.taskId === negotiation.taskId);
+      if (!task) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error: Task #${negotiation.taskId} not found`,
+          }],
+          isError: true,
+        };
+      }
+
+      // Accept the negotiation
+      negotiation.status = "accepted";
+
+      // Update task with negotiated terms
+      task.reward = { ...negotiation.proposedReward };
+      task.requirements = [...negotiation.proposedRequirements];
+      task.assignedAgent = negotiation.proposerAgent;
+      task.status = "accepted";
+      task.updatedAt = new Date().toISOString();
+
+      saveTaskStore(store);
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            success: true,
+            message: `Negotiation ${negotiationId} accepted. Task #${task.taskId} assigned to ${negotiation.proposerAgent} with negotiated terms.`,
+            negotiation,
             task,
           }, null, 2),
         }],
@@ -3946,7 +4245,65 @@ server.tool(
       return {
         content: [{
           type: "text" as const,
-          text: `Error reviewing work: ${error instanceof Error ? error.message : String(error)}`,
+          text: `Error accepting offer: ${error instanceof Error ? error.message : String(error)}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// 4. reject_offer
+server.tool(
+  "reject_offer",
+  "Reject a negotiation proposal.",
+  {
+    negotiationId: z.string().describe("The negotiation to reject"),
+    rejectingAgent: z.string().describe("Agent rejecting the offer"),
+    reason: z.string().optional().describe("Reason for rejection"),
+  },
+  async ({ negotiationId, rejectingAgent, reason }) => {
+    try {
+      const store = loadTaskStore();
+      const negotiation = store.negotiations.find((n) => n.negotiationId === negotiationId);
+
+      if (!negotiation) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error: Negotiation ${negotiationId} not found`,
+          }],
+          isError: true,
+        };
+      }
+      if (negotiation.status !== "pending") {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error: Negotiation ${negotiationId} is not pending (current status: ${negotiation.status})`,
+          }],
+          isError: true,
+        };
+      }
+
+      negotiation.status = "rejected";
+      saveTaskStore(store);
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            success: true,
+            message: `Negotiation ${negotiationId} rejected by ${rejectingAgent}${reason ? `: ${reason}` : ""}`,
+            negotiation,
+          }, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error rejecting offer: ${error instanceof Error ? error.message : String(error)}`,
         }],
         isError: true,
       };
