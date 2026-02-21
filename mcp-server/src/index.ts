@@ -79,7 +79,7 @@ interface TaskStoreData {
   negotiations: TaskNegotiation[];
 }
 
-const TASK_STORE_PATH = path.resolve(process.cwd(), ".task-store.json");
+const TASK_STORE_PATH = process.env.TASK_STORE_PATH || path.resolve("/tmp", "agentmarket-task-store.json");
 
 function loadTaskStore(): TaskStoreData {
   try {
@@ -2162,6 +2162,8 @@ const HEDERA_CONTRACTS = {
   saucerswapV1Factory: "0x00000000000000000000000000000000000026E7" as Address,
   // Bonzo Finance (Aave V2 fork) - testnet LendingPool proxy (from bonzo-contracts.json)
   bonzoLendingPool: "0x7710a96b01e02eD00768C3b39BfA7B4f1c128c62" as Address,
+  // SubscriptionManager (HSS-enabled, deployed on Hedera testnet)
+  subscriptionManager: "0x00000000000000000000000000000000007a114f" as Address,
   // Tokens (EIP-55 checksummed)
   whbar: "0x0000000000000000000000000000000000003aD2" as Address,
   sauce: "0x0000000000000000000000000000000000120f46" as Address,
@@ -4304,6 +4306,340 @@ server.tool(
         content: [{
           type: "text" as const,
           text: `Error rejecting offer: ${error instanceof Error ? error.message : String(error)}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ============================================================================
+// HEDERA SUBSCRIPTION MANAGER TOOLS (HSS-enabled on Hedera Testnet)
+// ============================================================================
+
+// hedera_get_subscription - Get subscription details on Hedera
+server.tool(
+  "hedera_get_subscription",
+  "Get detailed information about a subscription by its ID on Hedera testnet SubscriptionManager (HSS-enabled). Returns subscriber, agent ID, amount, interval, next payment, active status, total paid, and payment count.",
+  {
+    subscriptionId: z.string().describe("The numeric ID of the subscription to look up"),
+  },
+  async ({ subscriptionId }) => {
+    try {
+      const subscription = await hederaPublicClient.readContract({
+        address: HEDERA_CONTRACTS.subscriptionManager,
+        abi: SUBSCRIPTION_MANAGER_ABI,
+        functionName: "getSubscription",
+        args: [BigInt(subscriptionId)],
+      });
+
+      const formatted = formatSubscriptionData(subscription);
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            chain: "Hedera Testnet",
+            contract: HEDERA_CONTRACTS.subscriptionManager,
+            subscriptionId,
+            ...formatted,
+          }, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error fetching Hedera subscription ${subscriptionId}: ${error instanceof Error ? error.message : String(error)}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// hedera_list_user_subscriptions - List subscription IDs for a user on Hedera
+server.tool(
+  "hedera_list_user_subscriptions",
+  "List all subscription IDs for a user address on Hedera testnet SubscriptionManager.",
+  {
+    address: z.string().describe("The EVM address of the user (0x...)"),
+  },
+  async ({ address }) => {
+    try {
+      const subscriptionIds = await hederaPublicClient.readContract({
+        address: HEDERA_CONTRACTS.subscriptionManager,
+        abi: SUBSCRIPTION_MANAGER_ABI,
+        functionName: "getUserSubscriptions",
+        args: [address as Address],
+      });
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            chain: "Hedera Testnet",
+            address,
+            totalSubscriptions: subscriptionIds.length,
+            subscriptionIds: subscriptionIds.map(Number),
+          }, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error fetching Hedera subscriptions for ${address}: ${error instanceof Error ? error.message : String(error)}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// hedera_get_subscription_stats - Get subscription stats on Hedera
+server.tool(
+  "hedera_get_subscription_stats",
+  "Get overall subscription statistics on Hedera testnet SubscriptionManager (HSS-enabled). Returns active count and next subscription ID.",
+  {},
+  async () => {
+    try {
+      const [activeCount, nextId] = await Promise.all([
+        hederaPublicClient.readContract({
+          address: HEDERA_CONTRACTS.subscriptionManager,
+          abi: SUBSCRIPTION_MANAGER_ABI,
+          functionName: "getActiveSubscriptionCount",
+        }),
+        hederaPublicClient.readContract({
+          address: HEDERA_CONTRACTS.subscriptionManager,
+          abi: SUBSCRIPTION_MANAGER_ABI,
+          functionName: "nextSubscriptionId",
+        }),
+      ]);
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            chain: "Hedera Testnet",
+            contract: HEDERA_CONTRACTS.subscriptionManager,
+            contractId: "0.0.7999823",
+            activeSubscriptions: Number(activeCount),
+            totalSubscriptionsCreated: Number(nextId) - 1,
+            nextSubscriptionId: Number(nextId),
+            hssEnabled: true,
+            hashscan: "https://hashscan.io/testnet/contract/0.0.7999823",
+          }, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error fetching Hedera subscription stats: ${error instanceof Error ? error.message : String(error)}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// hedera_subscribe_to_agent - Create a subscription on Hedera (native HBAR payment)
+server.tool(
+  "hedera_subscribe_to_agent",
+  "Create a new recurring subscription to an AI agent on Hedera testnet with native HBAR payments. Uses Hedera Schedule Service (HSS) for autonomous recurring payments. The first payment is sent immediately. Requires HEDERA_PRIVATE_KEY.",
+  {
+    agentId: z.string().describe("The numeric ID of the agent to subscribe to"),
+    amount: z.string().describe("Payment amount per interval in HBAR (e.g., '0.1' for 0.1 HBAR)"),
+    interval: z.string().describe("Payment interval in seconds (e.g., '300' for 5 min, '86400' for daily, '604800' for weekly)"),
+  },
+  async ({ agentId, amount, interval }) => {
+    try {
+      const { client } = getHederaSdkClient();
+
+      // On Hedera EVM, msg.value is in TINYBARS (1 HBAR = 10^8 tinybars)
+      // NOT weibars like Ethereum. So the contract amount param must also be in tinybars.
+      const amountTinybars = BigInt(Math.round(Number(amount) * 1e8));
+
+      // Look up the contract entity ID for Hedera SDK
+      const contractEntityId = await lookupEntityId(HEDERA_CONTRACTS.subscriptionManager);
+      if (!contractEntityId) {
+        throw new Error(`Cannot resolve entity ID for SubscriptionManager ${HEDERA_CONTRACTS.subscriptionManager}`);
+      }
+      const contractId = ContractId.fromString(contractEntityId);
+
+      const { Hbar } = await import("@hashgraph/sdk");
+      const amountHbar = new Hbar(Number(amount));
+
+      // ABI-encode manually for precise uint256 values
+      // subscribeTo(uint256 agentId, uint256 amount, uint256 interval) selector = 0x7d044a76
+      const agentIdHex = BigInt(agentId).toString(16).padStart(64, "0");
+      const amountHex = amountTinybars.toString(16).padStart(64, "0");
+      const intervalHex = BigInt(interval).toString(16).padStart(64, "0");
+      const selector = "7d044a76";
+      const calldata = Buffer.from(selector + agentIdHex + amountHex + intervalHex, "hex");
+
+      const subscribeTx = await new ContractExecuteTransaction()
+        .setContractId(contractId)
+        .setGas(3_000_000)
+        .setPayableAmount(amountHbar)
+        .setFunctionParameters(calldata)
+        .execute(client);
+
+      const receipt = await subscribeTx.getReceipt(client);
+      const txId = subscribeTx.transactionId?.toString() || "";
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            success: true,
+            chain: "Hedera Testnet",
+            action: "subscribe",
+            agentId,
+            amount: `${amount} HBAR`,
+            interval: `${interval} seconds`,
+            transactionId: txId,
+            receiptStatus: receipt.status.toString(),
+            hssEnabled: true,
+            explorerUrl: `https://hashscan.io/testnet/transaction/${txId}`,
+            message: `Subscribed to agent ${agentId} with ${amount} HBAR every ${interval}s on Hedera. HSS will handle autonomous recurring payments.`,
+          }, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error subscribing to agent ${agentId} on Hedera: ${error instanceof Error ? error.message : String(error)}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// hedera_cancel_subscription - Cancel a subscription on Hedera
+server.tool(
+  "hedera_cancel_subscription",
+  "Cancel an active subscription on Hedera testnet. Only the subscriber can cancel. Requires HEDERA_PRIVATE_KEY.",
+  {
+    subscriptionId: z.string().describe("The numeric ID of the subscription to cancel"),
+  },
+  async ({ subscriptionId }) => {
+    try {
+      const { client } = getHederaSdkClient();
+
+      const contractEntityId = await lookupEntityId(HEDERA_CONTRACTS.subscriptionManager);
+      if (!contractEntityId) {
+        throw new Error(`Cannot resolve entity ID for SubscriptionManager`);
+      }
+      const contractId = ContractId.fromString(contractEntityId);
+
+      // cancelSubscription(uint256) selector = 0x21235083
+      const subIdHex = BigInt(subscriptionId).toString(16).padStart(64, "0");
+      const cancelCalldata = Buffer.from("21235083" + subIdHex, "hex");
+
+      const cancelTx = await new ContractExecuteTransaction()
+        .setContractId(contractId)
+        .setGas(1_000_000)
+        .setFunctionParameters(cancelCalldata)
+        .execute(client);
+
+      const receipt = await cancelTx.getReceipt(client);
+      const txId = cancelTx.transactionId?.toString() || "";
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            success: true,
+            chain: "Hedera Testnet",
+            action: "cancel_subscription",
+            subscriptionId,
+            transactionId: txId,
+            receiptStatus: receipt.status.toString(),
+            explorerUrl: `https://hashscan.io/testnet/transaction/${txId}`,
+            message: `Subscription ${subscriptionId} cancelled on Hedera testnet.`,
+          }, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error cancelling Hedera subscription ${subscriptionId}: ${error instanceof Error ? error.message : String(error)}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// hedera_execute_subscription_payment - Manually execute an overdue payment on Hedera
+server.tool(
+  "hedera_execute_subscription_payment",
+  "Execute a payment for an active subscription on Hedera testnet that is due. This is the manual fallback if HSS auto-payment hasn't fired. Sends the subscription amount as HBAR value. Requires HEDERA_PRIVATE_KEY.",
+  {
+    subscriptionId: z.string().describe("The numeric ID of the subscription to execute payment for"),
+  },
+  async ({ subscriptionId }) => {
+    try {
+      const { client } = getHederaSdkClient();
+
+      // First read the subscription to get the amount
+      const subscription = await hederaPublicClient.readContract({
+        address: HEDERA_CONTRACTS.subscriptionManager,
+        abi: SUBSCRIPTION_MANAGER_ABI,
+        functionName: "getSubscription",
+        args: [BigInt(subscriptionId)],
+      });
+
+      const contractEntityId = await lookupEntityId(HEDERA_CONTRACTS.subscriptionManager);
+      if (!contractEntityId) {
+        throw new Error(`Cannot resolve entity ID for SubscriptionManager`);
+      }
+      const contractId = ContractId.fromString(contractEntityId);
+
+      // Convert wei amount to Hbar for payable
+      const amountHbar = Number(formatEther(subscription.amount));
+
+      // executePayment(uint256) selector = 0x162a0cf8
+      const { Hbar } = await import("@hashgraph/sdk");
+      const paySubIdHex = BigInt(subscriptionId).toString(16).padStart(64, "0");
+      const payCalldata = Buffer.from("162a0cf8" + paySubIdHex, "hex");
+
+      const payTx = await new ContractExecuteTransaction()
+        .setContractId(contractId)
+        .setGas(3_000_000)
+        .setPayableAmount(new Hbar(amountHbar))
+        .setFunctionParameters(payCalldata)
+        .execute(client);
+
+      const receipt = await payTx.getReceipt(client);
+      const txId = payTx.transactionId?.toString() || "";
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            success: true,
+            chain: "Hedera Testnet",
+            action: "execute_payment",
+            subscriptionId,
+            amountPaid: `${amountHbar} HBAR`,
+            transactionId: txId,
+            receiptStatus: receipt.status.toString(),
+            explorerUrl: `https://hashscan.io/testnet/transaction/${txId}`,
+            message: `Payment executed for Hedera subscription ${subscriptionId}. Amount: ${amountHbar} HBAR.`,
+          }, null, 2),
+        }],
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error executing Hedera subscription payment ${subscriptionId}: ${error instanceof Error ? error.message : String(error)}`,
         }],
         isError: true,
       };
