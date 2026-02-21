@@ -1,80 +1,144 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createPublicClient, http, defineChain, formatEther } from "viem";
 
 // Kite AI x402 Constants
-const SERVICE_WALLET = process.env.KITE_SERVICE_WALLET ?? "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18";
+const SERVICE_WALLET =
+  process.env.KITE_SERVICE_WALLET ??
+  "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18";
 const KITE_TEST_USDT = "0x0fF5393387ad2f9f691FD6Fd28e07E3969e27e63";
 const FACILITATOR_URL = "https://facilitator.pieverse.io";
 
-// Mock agent registry for discovery
-const KITE_AGENTS = [
+// ADI Testnet chain definition
+const adiTestnet = defineChain({
+  id: 99999,
+  name: "ADI Testnet",
+  nativeCurrency: { name: "ADI", symbol: "ADI", decimals: 18 },
+  rpcUrls: {
+    default: { http: ["https://rpc.ab.testnet.adifoundation.ai/"] },
+  },
+});
+
+// Agent Registry contract
+const REGISTRY_ADDRESS = "0x24fF5f6637A83CA7CA7B72b3Ad55275D669Ab7da" as const;
+
+const REGISTRY_ABI = [
   {
-    id: "kite-agent-001",
-    name: "DataOracle",
-    category: "Analytics",
-    description: "Real-time on-chain data analysis and market intelligence across Kite AI ecosystem",
-    capabilities: ["market-analysis", "on-chain-data", "portfolio-tracking"],
-    pricePerTask: "1000000000000000000", // 1 USDT
-    reputation: 4.8,
-    totalTasks: 1247,
-    did: "did:kite:dataoracle.eth/analytics/v1",
-    status: "active",
+    type: "function",
+    name: "nextAgentId",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
   },
   {
-    id: "kite-agent-002",
-    name: "ContractAuditor",
-    category: "Security",
-    description: "AI-powered smart contract auditing and vulnerability detection on Kite AI",
-    capabilities: ["audit", "vulnerability-scan", "gas-optimization"],
-    pricePerTask: "5000000000000000000", // 5 USDT
-    reputation: 4.9,
-    totalTasks: 342,
-    did: "did:kite:auditor.eth/security/v2",
-    status: "active",
+    type: "function",
+    name: "getAgent",
+    inputs: [{ name: "agentId", type: "uint256" }],
+    outputs: [
+      {
+        type: "tuple",
+        components: [
+          { name: "owner", type: "address" },
+          { name: "metadataURI", type: "string" },
+          { name: "pricePerTask", type: "uint256" },
+          { name: "isActive", type: "bool" },
+          { name: "totalTasksCompleted", type: "uint256" },
+          { name: "totalRating", type: "uint256" },
+          { name: "ratingCount", type: "uint256" },
+          { name: "createdAt", type: "uint256" },
+        ],
+      },
+    ],
+    stateMutability: "view",
   },
-  {
-    id: "kite-agent-003",
-    name: "ContentForge",
-    category: "Content",
-    description: "Autonomous content generation and social media management for Web3 projects",
-    capabilities: ["content-generation", "social-media", "copywriting"],
-    pricePerTask: "2000000000000000000", // 2 USDT
-    reputation: 4.5,
-    totalTasks: 891,
-    did: "did:kite:contentforge.eth/content/v1",
-    status: "active",
-  },
-  {
-    id: "kite-agent-004",
-    name: "DeFiNavigator",
-    category: "DeFi",
-    description: "Yield optimization and DeFi strategy agent operating on Kite AI chain",
-    capabilities: ["yield-farming", "liquidity-provision", "swap-routing"],
-    pricePerTask: "3000000000000000000", // 3 USDT
-    reputation: 4.7,
-    totalTasks: 564,
-    did: "did:kite:definavigator.eth/defi/v1",
-    status: "active",
-  },
-  {
-    id: "kite-agent-005",
-    name: "NFTCurator",
-    category: "NFT",
-    description: "NFT valuation, curation, and marketplace intelligence on Kite ecosystem",
-    capabilities: ["nft-valuation", "collection-analysis", "rarity-scoring"],
-    pricePerTask: "1500000000000000000", // 1.5 USDT
-    reputation: 4.3,
-    totalTasks: 723,
-    did: "did:kite:nftcurator.eth/nft/v1",
-    status: "active",
-  },
-];
+] as const;
+
+const client = createPublicClient({
+  chain: adiTestnet,
+  transport: http("https://rpc.ab.testnet.adifoundation.ai/"),
+});
+
+/**
+ * Fetch all agents from the on-chain AgentRegistry contract.
+ */
+async function fetchAgentsFromRegistry(category?: string | null) {
+  const nextId = await client.readContract({
+    address: REGISTRY_ADDRESS,
+    abi: REGISTRY_ABI,
+    functionName: "nextAgentId",
+  });
+
+  const totalAgents = Number(nextId);
+  const agents = [];
+
+  for (let i = 0; i < totalAgents; i++) {
+    try {
+      const agent = await client.readContract({
+        address: REGISTRY_ADDRESS,
+        abi: REGISTRY_ABI,
+        functionName: "getAgent",
+        args: [BigInt(i)],
+      });
+
+      if (!agent.isActive) continue;
+
+      const priceEth = formatEther(agent.pricePerTask);
+      const avgRating =
+        agent.ratingCount > BigInt(0)
+          ? Number(agent.totalRating) / Number(agent.ratingCount)
+          : 0;
+
+      // Derive a category from metadataURI or default to "General"
+      let agentCategory = "General";
+      const uri = agent.metadataURI.toLowerCase();
+      if (uri.includes("defi") || uri.includes("swap") || uri.includes("yield"))
+        agentCategory = "DeFi";
+      else if (uri.includes("security") || uri.includes("audit"))
+        agentCategory = "Security";
+      else if (uri.includes("analytics") || uri.includes("data") || uri.includes("oracle"))
+        agentCategory = "Analytics";
+      else if (uri.includes("content") || uri.includes("social"))
+        agentCategory = "Content";
+      else if (uri.includes("nft") || uri.includes("curator"))
+        agentCategory = "NFT";
+
+      if (
+        category &&
+        agentCategory.toLowerCase() !== category.toLowerCase()
+      ) {
+        continue;
+      }
+
+      agents.push({
+        id: `adi-agent-${i}`,
+        registryId: i,
+        owner: agent.owner,
+        metadataURI: agent.metadataURI,
+        category: agentCategory,
+        pricePerTask: agent.pricePerTask.toString(),
+        pricePerTaskFormatted: `${priceEth} ADI`,
+        reputation: Math.round(avgRating * 10) / 10,
+        totalTasks: Number(agent.totalTasksCompleted),
+        ratingCount: Number(agent.ratingCount),
+        isActive: agent.isActive,
+        createdAt: new Date(Number(agent.createdAt) * 1000).toISOString(),
+        did: `did:adi:registry/${REGISTRY_ADDRESS}/agent/${i}`,
+        status: "active",
+      });
+    } catch {
+      // Agent at this index may not exist or may have been removed; skip
+      continue;
+    }
+  }
+
+  return agents;
+}
 
 /**
  * GET /api/kite/discover
  *
  * x402-compatible agent discovery endpoint using Kite's gokite-aa scheme.
  * Returns 402 with payment requirements if no X-PAYMENT header is provided.
- * Returns available agents if payment is verified.
+ * Returns available agents from the on-chain ADI AgentRegistry if payment is verified.
  *
  * Query params:
  *   - category (optional) - filter agents by category
@@ -92,10 +156,11 @@ export async function GET(request: NextRequest) {
         accepts: [
           {
             scheme: "gokite-aa",
-            network: "kite-testnet",
+            network: "adi-testnet",
             maxAmountRequired: "1000000000000000000", // 1 USDT
             resource: `${request.url}`,
-            description: "AgentMarket - AI Agent Discovery Service on Kite AI",
+            description:
+              "AgentMarket - AI Agent Discovery Service on ADI Chain",
             mimeType: "application/json",
             outputSchema: {
               input: {
@@ -103,7 +168,8 @@ export async function GET(request: NextRequest) {
                 method: "GET",
                 queryParams: {
                   category: {
-                    description: "Filter agents by category (Analytics, Security, Content, DeFi, NFT)",
+                    description:
+                      "Filter agents by category (Analytics, Security, Content, DeFi, NFT, General)",
                     required: false,
                     type: "string",
                   },
@@ -112,7 +178,10 @@ export async function GET(request: NextRequest) {
               },
               output: {
                 properties: {
-                  agents: { description: "List of available agents", type: "array" },
+                  agents: {
+                    description: "List of available agents from on-chain registry",
+                    type: "array",
+                  },
                   count: { description: "Total agent count", type: "number" },
                 },
                 required: ["agents", "count"],
@@ -151,7 +220,7 @@ export async function GET(request: NextRequest) {
       body: JSON.stringify({
         authorization,
         signature,
-        network: "kite-testnet",
+        network: "adi-testnet",
       }),
     });
 
@@ -166,7 +235,7 @@ export async function GET(request: NextRequest) {
       body: JSON.stringify({
         authorization,
         signature,
-        network: "kite-testnet",
+        network: "adi-testnet",
       }),
     });
 
@@ -174,20 +243,16 @@ export async function GET(request: NextRequest) {
       throw new Error("Payment settlement failed - falling through to demo mode");
     }
 
-    // Payment successful - return agents
-    let agents = KITE_AGENTS;
-    if (category) {
-      agents = agents.filter(
-        (a) => a.category.toLowerCase() === category.toLowerCase()
-      );
-    }
+    // Payment successful - fetch real agents from on-chain registry
+    const agents = await fetchAgentsFromRegistry(category);
 
     return NextResponse.json(
       {
         agents,
         count: agents.length,
-        network: "kite-testnet",
-        chainId: 2368,
+        network: "adi-testnet",
+        chainId: 99999,
+        registry: REGISTRY_ADDRESS,
         paymentSettled: true,
         timestamp: new Date().toISOString(),
       },
@@ -197,32 +262,28 @@ export async function GET(request: NextRequest) {
           "X-PAYMENT-RESPONSE": Buffer.from(
             JSON.stringify({
               settled: true,
-              network: "kite-testnet",
+              network: "adi-testnet",
               timestamp: Date.now(),
             })
           ).toString("base64"),
         },
       }
     );
-  } catch (error) {
-    // For demo purposes, allow access without actual payment verification
-    // This allows the frontend to show data while demonstrating the x402 flow
-    let agents = KITE_AGENTS;
-    if (category) {
-      agents = agents.filter(
-        (a) => a.category.toLowerCase() === category.toLowerCase()
-      );
-    }
+  } catch {
+    // Hackathon demo mode: payment verification failed but still return real on-chain data
+    // This allows the frontend to show real agents while demonstrating the x402 flow
+    const agents = await fetchAgentsFromRegistry(category);
 
     return NextResponse.json(
       {
         agents,
         count: agents.length,
-        network: "kite-testnet",
-        chainId: 2368,
+        network: "adi-testnet",
+        chainId: 99999,
+        registry: REGISTRY_ADDRESS,
         paymentSettled: false,
         demo: true,
-        note: "Demo mode - payment verification skipped",
+        note: "Demo mode - payment verification skipped, but agent data is real from on-chain registry",
         timestamp: new Date().toISOString(),
       },
       {
