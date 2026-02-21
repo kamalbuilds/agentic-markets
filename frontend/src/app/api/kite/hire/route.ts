@@ -1,25 +1,53 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createPublicClient, http, defineChain, formatEther } from "viem";
+import { createPublicClient, createWalletClient, http, defineChain, formatEther, getAddress } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 
-// Kite AI x402 Constants
+// Kite AI x402 v2 Constants
 const SERVICE_WALLET =
   process.env.KITE_SERVICE_WALLET ??
-  "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18";
-const KITE_TEST_USDT = "0x0fF5393387ad2f9f691FD6Fd28e07E3969e27e63";
+  getAddress("0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18");
+const PIE_USD = getAddress("0x105cE361E721aA4A604655debB0A7464C948E980"); // pieUSD on Kite Testnet
 const FACILITATOR_URL = "https://facilitator.pieverse.io";
+const KITE_NETWORK = "eip155:2368"; // CAIP-2 format
 
-// ADI Testnet chain definition
-const adiTestnet = defineChain({
-  id: 99999,
-  name: "ADI Testnet",
-  nativeCurrency: { name: "ADI", symbol: "ADI", decimals: 18 },
+// Agent wallet for self-settlement (calls transferWithAuthorization on-chain)
+const AGENT_PK = (process.env.AGENT_PRIVATE_KEY ??
+  "0x17b9bfede94175011d74b287cfc3d8b62bac54e21d0a45a179cb9eca807daa58") as `0x${string}`;
+
+// ERC-3009 transferWithAuthorization bytes overload ABI (the only overload our pieUSD supports)
+const transferWithAuthBytesABI = [
+  {
+    type: "function",
+    name: "transferWithAuthorization",
+    inputs: [
+      { name: "from", type: "address" },
+      { name: "to", type: "address" },
+      { name: "value", type: "uint256" },
+      { name: "validAfter", type: "uint256" },
+      { name: "validBefore", type: "uint256" },
+      { name: "nonce", type: "bytes32" },
+      { name: "signature", type: "bytes" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+] as const;
+
+// Kite AI Testnet chain definition
+const kiteTestnet = defineChain({
+  id: 2368,
+  name: "Kite AI Testnet",
+  nativeCurrency: { name: "KITE", symbol: "KITE", decimals: 18 },
   rpcUrls: {
-    default: { http: ["https://rpc.ab.testnet.adifoundation.ai/"] },
+    default: { http: ["https://rpc-testnet.gokite.ai/"] },
+  },
+  blockExplorers: {
+    default: { name: "KiteScan", url: "https://testnet.kitescan.ai" },
   },
 });
 
-// Agent Registry contract
-const REGISTRY_ADDRESS = "0x24fF5f6637A83CA7CA7B72b3Ad55275D669Ab7da" as const;
+// Agent Registry contract deployed on Kite AI Testnet
+const REGISTRY_ADDRESS = "0x5820dd377d88A2e331e935F85cD43D6e164c706E" as const;
 
 const REGISTRY_ABI = [
   {
@@ -53,8 +81,8 @@ const REGISTRY_ABI = [
 ] as const;
 
 const client = createPublicClient({
-  chain: adiTestnet,
-  transport: http("https://rpc.ab.testnet.adifoundation.ai/"),
+  chain: kiteTestnet,
+  transport: http("https://rpc-testnet.gokite.ai/"),
 });
 
 function generateTaskId(): string {
@@ -62,19 +90,27 @@ function generateTaskId(): string {
 }
 
 /**
+ * Build x402 v2 PaymentRequirements for Pieverse on Kite Testnet.
+ */
+function buildPaymentRequirements(amount: string) {
+  return {
+    scheme: "exact",
+    network: KITE_NETWORK,
+    amount,
+    asset: PIE_USD,
+    payTo: SERVICE_WALLET,
+    maxTimeoutSeconds: 300,
+    extra: { name: "pieUSD", version: "1" },
+  };
+}
+
+/**
  * Parse an agent ID string and extract the numeric registry ID.
- * Accepts formats like "adi-agent-3", "3", "kite-agent-003", etc.
  */
 function parseAgentId(agentId: string): number | null {
-  // Try "adi-agent-N" format
-  const adiMatch = agentId.match(/^adi-agent-(\d+)$/);
-  if (adiMatch) return parseInt(adiMatch[1], 10);
+  const match = agentId.match(/^kite-agent-(\d+)$/);
+  if (match) return parseInt(match[1], 10);
 
-  // Try "kite-agent-NNN" format (legacy)
-  const kiteMatch = agentId.match(/^kite-agent-(\d+)$/);
-  if (kiteMatch) return parseInt(kiteMatch[1], 10);
-
-  // Try raw numeric
   const num = parseInt(agentId, 10);
   if (!isNaN(num) && num >= 0) return num;
 
@@ -84,87 +120,41 @@ function parseAgentId(agentId: string): number | null {
 /**
  * POST /api/kite/hire
  *
- * x402-compatible agent hiring endpoint using Kite's gokite-aa scheme.
- * Returns 402 with payment requirements if no X-PAYMENT header is provided.
- * Verifies the agent exists and is active on-chain, then confirms the hire intent.
- * Actual payment execution happens via the pay_agent MCP tool.
+ * x402 v2 compatible agent hiring endpoint using Pieverse facilitator on Kite Testnet.
+ * Returns 402 with x402 v2 payment requirements (scheme: exact, network: eip155:2368, asset: pieUSD).
+ * Verifies the agent exists on-chain, then verifies and settles payment via Pieverse.
  *
  * Body:
  *   - agentId (required) - the ID of the agent to hire
  *   - task (required) - description of the task to perform
- *   - maxBudget (optional) - maximum USDT budget for the task
+ *   - maxBudget (optional) - maximum pieUSD budget for the task
  */
 export async function POST(request: NextRequest) {
-  const xPayment = request.headers.get("x-payment");
+  const paymentHeader =
+    request.headers.get("payment-signature") ??
+    request.headers.get("x-payment");
 
-  // No payment header: return 402 with payment requirements
-  if (!xPayment) {
+  const paymentRequirements = buildPaymentRequirements("5000000000000000000"); // 5 pieUSD
+
+  // No payment header: return 402 with x402 v2 payment requirements
+  if (!paymentHeader) {
     return NextResponse.json(
       {
-        error: "X-PAYMENT header is required",
-        accepts: [
-          {
-            scheme: "gokite-aa",
-            network: "adi-testnet",
-            maxAmountRequired: "5000000000000000000", // 5 USDT
-            resource: `${request.url}`,
-            description: "AgentMarket - Hire an AI Agent on ADI Chain",
-            mimeType: "application/json",
-            outputSchema: {
-              input: {
-                discoverable: true,
-                method: "POST",
-                body: {
-                  agentId: {
-                    description: "The ID of the agent to hire (e.g. adi-agent-0 or numeric)",
-                    required: true,
-                    type: "string",
-                  },
-                  task: {
-                    description: "Description of the task to perform",
-                    required: true,
-                    type: "string",
-                  },
-                  maxBudget: {
-                    description: "Maximum USDT budget for the task",
-                    required: false,
-                    type: "string",
-                  },
-                },
-                type: "http",
-              },
-              output: {
-                properties: {
-                  taskId: {
-                    description: "Unique task identifier",
-                    type: "string",
-                  },
-                  agentId: { description: "Hired agent ID", type: "string" },
-                  status: { description: "Task status", type: "string" },
-                  agent: {
-                    description: "On-chain agent data",
-                    type: "object",
-                  },
-                },
-                required: ["taskId", "agentId", "status"],
-                type: "object",
-              },
-            },
-            payTo: SERVICE_WALLET,
-            maxTimeoutSeconds: 300,
-            asset: KITE_TEST_USDT,
-            extra: null,
-            merchantName: "AgentMarket",
-          },
-        ],
-        x402Version: 1,
+        x402Version: 2,
+        error: "Payment required",
+        resource: {
+          url: request.url,
+          description: "AgentMarket - Hire an AI Agent on Kite AI",
+          mimeType: "application/json",
+        },
+        accepts: [paymentRequirements],
       },
       {
         status: 402,
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type, X-PAYMENT",
+          "Access-Control-Allow-Headers": "Content-Type, X-PAYMENT, PAYMENT-SIGNATURE",
         },
       }
     );
@@ -190,11 +180,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Parse the agent ID to a numeric registry index
   const registryId = parseAgentId(agentId);
   if (registryId === null) {
     return NextResponse.json(
-      { error: `Invalid agent ID format: ${agentId}. Use adi-agent-N or a numeric ID.` },
+      { error: `Invalid agent ID format: ${agentId}. Use kite-agent-N or a numeric ID.` },
       { status: 400 }
     );
   }
@@ -242,13 +231,12 @@ export async function POST(request: NextRequest) {
       ? Number(agentData.totalRating) / Number(agentData.ratingCount)
       : 0;
 
-  // Build the confirmed agent response
   const agentResponse = {
     registryId,
     owner: agentData.owner,
     metadataURI: agentData.metadataURI,
     pricePerTask: agentData.pricePerTask.toString(),
-    pricePerTaskFormatted: `${priceEth} ADI`,
+    pricePerTaskFormatted: `${priceEth} KITE`,
     isActive: agentData.isActive,
     totalTasksCompleted: Number(agentData.totalTasksCompleted),
     averageRating: Math.round(avgRating * 10) / 10,
@@ -256,43 +244,114 @@ export async function POST(request: NextRequest) {
     createdAt: new Date(Number(agentData.createdAt) * 1000).toISOString(),
   };
 
-  // Verify payment via Pieverse facilitator
+  // Decode x402 v2 PaymentPayload from header
+  let paymentPayload: Record<string, unknown>;
   try {
-    const decoded = JSON.parse(Buffer.from(xPayment, "base64").toString());
-    const { authorization, signature } = decoded;
+    paymentPayload = JSON.parse(Buffer.from(paymentHeader, "base64").toString());
+  } catch {
+    return NextResponse.json(
+      { error: "Invalid payment header encoding" },
+      { status: 400 }
+    );
+  }
 
-    // Step 1: Verify payment
+  // Verify and settle payment via Pieverse facilitator (x402 v2 format)
+  const taskId = generateTaskId();
+
+  try {
     const verifyResponse = await fetch(`${FACILITATOR_URL}/v2/verify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        authorization,
-        signature,
-        network: "adi-testnet",
+        paymentPayload,
+        paymentRequirements,
       }),
     });
 
-    if (!verifyResponse.ok) {
-      throw new Error("Payment verification failed - falling through to demo mode");
+    const verifyResult = await verifyResponse.json();
+
+    if (!verifyResult.isValid) {
+      // Verification failed — return agent data with verification details
+      return NextResponse.json(
+        {
+          taskId,
+          agentId,
+          registryId,
+          task,
+          status: "accepted",
+          agent: agentResponse,
+          result: {
+            message: `Agent ${agentId} (owner: ${agentData.owner}) has been hired. Task assigned.`,
+            estimatedCompletion: new Date(Date.now() + 60000).toISOString(),
+          },
+          x402: {
+            verified: false,
+            reason: verifyResult.invalidReason || "verification_failed",
+            payer: verifyResult.payer,
+            facilitator: FACILITATOR_URL,
+          },
+          timestamp: new Date().toISOString(),
+        },
+        {
+          headers: { "Access-Control-Allow-Origin": "*" },
+        }
+      );
     }
 
-    // Step 2: Settle payment
-    const settleResponse = await fetch(`${FACILITATOR_URL}/v2/settle`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        authorization,
-        signature,
-        network: "adi-testnet",
-      }),
-    });
+    // Self-settle: call transferWithAuthorization(bytes) directly on-chain
+    // The Pieverse facilitator uses v,r,s overload which our pieUSD doesn't support,
+    // so we settle ourselves using the bytes overload after Pieverse verification passes.
+    const eip3009Payload = paymentPayload as {
+      payload?: { signature?: string; authorization?: {
+        from: string; to: string; value: string;
+        validAfter: string; validBefore: string; nonce: string;
+      } };
+    };
 
-    if (!settleResponse.ok) {
-      throw new Error("Payment settlement failed - falling through to demo mode");
+    const auth = eip3009Payload.payload?.authorization;
+    const sig = eip3009Payload.payload?.signature;
+
+    if (!auth || !sig) {
+      return NextResponse.json(
+        { error: "Missing authorization or signature in payment payload" },
+        { status: 400 }
+      );
     }
 
-    // Payment verified - confirm hire with real agent data
-    const taskId = generateTaskId();
+    let settleTxHash = "";
+    let settleSuccess = false;
+
+    try {
+      const settlerAccount = privateKeyToAccount(AGENT_PK);
+      const walletClient = createWalletClient({
+        account: settlerAccount,
+        chain: kiteTestnet,
+        transport: http("https://rpc-testnet.gokite.ai/"),
+      });
+
+      const txHash = await walletClient.writeContract({
+        address: PIE_USD,
+        abi: transferWithAuthBytesABI,
+        functionName: "transferWithAuthorization",
+        args: [
+          getAddress(auth.from),
+          getAddress(auth.to),
+          BigInt(auth.value),
+          BigInt(auth.validAfter),
+          BigInt(auth.validBefore),
+          auth.nonce as `0x${string}`,
+          sig as `0x${string}`,
+        ],
+        gas: BigInt(200000), // Fixed gas to bypass estimation timing issues
+      });
+
+      const receipt = await client.waitForTransactionReceipt({ hash: txHash });
+      settleTxHash = txHash;
+      settleSuccess = receipt.status === "success";
+    } catch (settleErr: unknown) {
+      const msg = settleErr instanceof Error ? settleErr.message.substring(0, 200) : "unknown";
+      console.error("Self-settle failed:", msg);
+    }
 
     return NextResponse.json(
       {
@@ -305,24 +364,26 @@ export async function POST(request: NextRequest) {
         result: {
           message: `Agent ${agentId} (owner: ${agentData.owner}) has been hired. Task assigned.`,
           estimatedCompletion: new Date(Date.now() + 60000).toISOString(),
-          note: "Actual payment settlement via pay_agent MCP tool",
         },
-        payment: {
-          settled: true,
-          network: "adi-testnet",
-          chainId: 99999,
-          amount: agentData.pricePerTask.toString(),
-          asset: KITE_TEST_USDT,
+        x402: {
+          verified: true,
+          settled: settleSuccess,
+          transaction: settleTxHash,
+          payer: verifyResult.payer,
+          network: KITE_NETWORK,
+          facilitator: FACILITATOR_URL,
+          settlementMethod: "direct-on-chain",
         },
         timestamp: new Date().toISOString(),
       },
       {
         headers: {
           "Access-Control-Allow-Origin": "*",
-          "X-PAYMENT-RESPONSE": Buffer.from(
+          "PAYMENT-RESPONSE": Buffer.from(
             JSON.stringify({
-              settled: true,
-              network: "adi-testnet",
+              success: settleSuccess,
+              transaction: settleTxHash,
+              network: KITE_NETWORK,
               taskId,
               timestamp: Date.now(),
             })
@@ -331,9 +392,7 @@ export async function POST(request: NextRequest) {
       }
     );
   } catch {
-    // Hackathon demo mode: payment failed but agent data is real from on-chain
-    const taskId = generateTaskId();
-
+    // Facilitator unreachable — still return agent data
     return NextResponse.json(
       {
         taskId,
@@ -345,19 +404,16 @@ export async function POST(request: NextRequest) {
         result: {
           message: `Agent ${agentId} (owner: ${agentData.owner}) has been hired. Task assigned.`,
           estimatedCompletion: new Date(Date.now() + 60000).toISOString(),
-          note: "Demo mode - payment verification skipped. Use pay_agent MCP tool for real payment.",
         },
-        payment: {
-          settled: false,
-          demo: true,
-          note: "Demo mode - payment verification skipped, but agent data is real from on-chain registry",
+        x402: {
+          verified: false,
+          reason: "facilitator_unreachable",
+          facilitator: FACILITATOR_URL,
         },
         timestamp: new Date().toISOString(),
       },
       {
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-        },
+        headers: { "Access-Control-Allow-Origin": "*" },
       }
     );
   }
@@ -372,7 +428,7 @@ export async function OPTIONS() {
     headers: {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, X-PAYMENT",
+      "Access-Control-Allow-Headers": "Content-Type, X-PAYMENT, PAYMENT-SIGNATURE",
     },
   });
 }

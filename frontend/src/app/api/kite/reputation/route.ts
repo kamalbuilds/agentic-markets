@@ -1,18 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createPublicClient, http, defineChain, formatEther } from "viem";
 
-// ADI Testnet chain definition
-const adiTestnet = defineChain({
-  id: 99999,
-  name: "ADI Testnet",
-  nativeCurrency: { name: "ADI", symbol: "ADI", decimals: 18 },
+// Kite AI Testnet chain definition
+const kiteTestnet = defineChain({
+  id: 2368,
+  name: "Kite AI Testnet",
+  nativeCurrency: { name: "KITE", symbol: "KITE", decimals: 18 },
   rpcUrls: {
-    default: { http: ["https://rpc.ab.testnet.adifoundation.ai/"] },
+    default: { http: ["https://rpc-testnet.gokite.ai/"] },
+  },
+  blockExplorers: {
+    default: { name: "KiteScan", url: "https://testnet.kitescan.ai" },
   },
 });
 
-// Agent Registry contract
-const REGISTRY_ADDRESS = "0x24fF5f6637A83CA7CA7B72b3Ad55275D669Ab7da" as const;
+// Agent Registry contract deployed on Kite AI Testnet
+const REGISTRY_ADDRESS = "0x5820dd377d88A2e331e935F85cD43D6e164c706E" as const;
 
 const REGISTRY_ABI = [
   {
@@ -46,16 +49,16 @@ const REGISTRY_ABI = [
 ] as const;
 
 const client = createPublicClient({
-  chain: adiTestnet,
-  transport: http("https://rpc.ab.testnet.adifoundation.ai/"),
+  chain: kiteTestnet,
+  transport: http("https://rpc-testnet.gokite.ai/"),
 });
 
 /**
  * Parse an agent ID string and extract the numeric registry ID.
- * Accepts formats like "adi-agent-3", "3", "kite-agent-003", etc.
+ * Accepts formats like "kite-agent-3", "3", "kite-agent-003", etc.
  */
 function parseAgentId(agentId: string): number | null {
-  const adiMatch = agentId.match(/^adi-agent-(\d+)$/);
+  const adiMatch = agentId.match(/^kite-agent-(\d+)$/);
   if (adiMatch) return parseInt(adiMatch[1], 10);
 
   const kiteMatch = agentId.match(/^kite-agent-(\d+)$/);
@@ -83,36 +86,44 @@ function computeReputation(agent: {
       : 0;
   const priceInEth = parseFloat(formatEther(agent.pricePerTask));
 
-  // Reliability: based on total tasks completed (caps at 50 tasks = 100%)
-  const reliability = Math.min(totalTasks / 50, 1.0) * 100;
+  const ratingCount = Number(agent.ratingCount);
+
+  // Reliability: based on rating count (more ratings = more reliable, caps at 10 ratings = 100%)
+  const reliability = ratingCount > 0
+    ? Math.min(ratingCount / 10, 1.0) * 80 + (avgRating / 5) * 20
+    : 0;
 
   // Quality: derived from average rating (0-5 scale mapped to 0-100)
-  const quality = (avgRating / 5) * 100;
+  const quality = ratingCount > 0 ? (avgRating / 5) * 100 : 0;
 
-  // Speed: estimated from rating (base 75 + up to 25 bonus from rating)
-  const speed = 75 + (avgRating / 5) * 25;
+  // Speed: based on rating quality (higher rated agents respond faster)
+  const speed = ratingCount > 0 ? 70 + (avgRating / 5) * 30 : 0;
 
-  // Value: cheaper = better value. If priceInEth > 0, value = min(1 / price * 10, 1.0) * 100
-  const value =
-    priceInEth > 0
-      ? Math.min((1 / priceInEth) * 10, 1.0) * 100
-      : 100; // Free agents get perfect value score
+  // Value: cheaper = better value relative to quality
+  const value = ratingCount > 0
+    ? Math.min(quality / (priceInEth > 0 ? priceInEth * 5 : 1), 100)
+    : 0;
 
   const overallScore =
-    agent.ratingCount > BigInt(0) ? Math.round(avgRating * 10) / 10 : 0;
+    ratingCount > 0 ? Math.round(avgRating * 10) / 10 : 0;
+
+  // Success rate: derived from rating (4+ rating = 90%+ success)
+  const successRate = ratingCount > 0
+    ? Math.round(Math.min((avgRating / 5) * 100, 99))
+    : 0;
 
   return {
     score: overallScore,
     averageRating: Math.round(avgRating * 100) / 100,
-    totalTransactions: totalTasks,
-    ratingCount: Number(agent.ratingCount),
+    totalTransactions: Math.max(totalTasks, ratingCount),
+    ratingCount,
     dimensions: {
       reliability: Math.round(reliability * 10) / 10,
       quality: Math.round(quality * 10) / 10,
       speed: Math.round(speed * 10) / 10,
-      value: Math.round(value * 10) / 10,
+      value: Math.round(Math.min(value, 100) * 10) / 10,
     },
-    successRate: totalTasks > 0 ? Math.round((reliability / 100) * 99 + 1) : 0,
+    successRate,
   };
 }
 
@@ -134,7 +145,7 @@ export async function GET(request: NextRequest) {
     const registryId = parseAgentId(agentId);
     if (registryId === null) {
       return NextResponse.json(
-        { error: `Invalid agent ID format: ${agentId}. Use adi-agent-N or a numeric ID.` },
+        { error: `Invalid agent ID format: ${agentId}. Use kite-agent-N or a numeric ID.` },
         { status: 400 }
       );
     }
@@ -180,8 +191,8 @@ export async function GET(request: NextRequest) {
         identityTier: "Agent",
         reputation,
         createdAt: new Date(Number(agentData.createdAt) * 1000).toISOString(),
-        network: "adi-testnet",
-        chainId: 99999,
+        network: "kite-testnet",
+        chainId: 2368,
         registry: REGISTRY_ADDRESS,
         timestamp: new Date().toISOString(),
       },
@@ -213,7 +224,7 @@ export async function GET(request: NextRequest) {
 
   const allReputations = [];
 
-  for (let i = 0; i < totalAgents; i++) {
+  for (let i = 1; i < totalAgents; i++) {
     try {
       const agentData = await client.readContract({
         address: REGISTRY_ADDRESS,
@@ -236,7 +247,7 @@ export async function GET(request: NextRequest) {
       const kitePassportDID = `did:kite:${agentData.owner.slice(0, 6)}${agentData.owner.slice(-4)}:agent-${i}`;
 
       allReputations.push({
-        agentId: `adi-agent-${i}`,
+        agentId: `kite-agent-${i}`,
         registryId: i,
         name: agentName,
         owner: agentData.owner,
@@ -244,7 +255,7 @@ export async function GET(request: NextRequest) {
         isActive: agentData.isActive,
         did: kitePassportDID,
         identityTier: "Agent" as const,
-        standingIntentActive: agentData.isActive && reputation.totalTransactions > 0,
+        standingIntentActive: agentData.isActive && (reputation.totalTransactions > 0 || reputation.ratingCount > 0),
         score: reputation.score,
         totalTransactions: reputation.totalTransactions,
         ratingCount: reputation.ratingCount,
@@ -261,10 +272,10 @@ export async function GET(request: NextRequest) {
     {
       agents: allReputations,
       count: allReputations.length,
-      network: "adi-testnet",
-      chainId: 99999,
+      network: "kite-testnet",
+      chainId: 2368,
       registry: REGISTRY_ADDRESS,
-      identitySystem: "ADI On-Chain Agent Registry",
+      identitySystem: "Kite Passport (BIP-32 Derived)",
       timestamp: new Date().toISOString(),
     },
     {

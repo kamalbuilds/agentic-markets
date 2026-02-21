@@ -1,0 +1,76 @@
+{
+  "env": {
+    "OPENROUTER_API_KEY": "${OPENROUTER_API_KEY}"
+  },
+  "gateway": {
+    "mode": "local",
+    "port": 18789,
+    "auth": {
+      "token": "${OPENCLAW_GATEWAY_TOKEN}"
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "openrouter/google/gemini-2.0-flash-001",
+        "fallbacks": ["openrouter/google/gemini-2.5-flash-preview", "openrouter/anthropic/claude-sonnet-4-5"]
+      }
+    },
+    "list": [
+      {
+        "id": "commerce",
+        "default": true,
+        "name": "Commerce Agent",
+        "workspace": "/tmp/openclaw-workspace-commerce",
+        "agentDir": "/Users/kamal/Desktop/denver/openclaw/agents/commerce/agent"
+      },
+      {
+        "id": "merchant",
+        "name": "Merchant Agent",
+        "workspace": "/tmp/openclaw-workspace-merchant",
+        "agentDir": "/Users/kamal/Desktop/denver/openclaw/agents/merchant/agent"
+      },
+      {
+        "id": "analytics",
+        "name": "Analytics Agent",
+        "workspace": "/tmp/openclaw-workspace-analytics",
+        "agentDir": "/Users/kamal/Desktop/denver/openclaw/agents/analytics/agent"
+      },
+      {
+        "id": "defi",
+        "name": "DeFi Agent",
+        "workspace": "/tmp/openclaw-workspace-defi",
+        "agentDir": "/Users/kamal/Desktop/denver/openclaw/agents/defi/agent"
+      }
+    ]
+  },
+  "skills": {
+    "load": {
+      "extraDirs": ["/Users/kamal/Desktop/denver/openclaw/skills"]
+    }
+  },
+  "tools": {
+    "agentToAgent": {
+      "enabled": true,
+      "allow": ["commerce", "merchant", "analytics", "defi"]
+    },
+    "mcp": {
+      "servers": [
+        {
+          "id": "agentmarket",
+          "name": "AgentMarket MCP",
+          "command": "node",
+          "args": ["/Users/kamal/Desktop/denver/mcp-server/dist/index.js"],
+          "env": {
+            "AGENT_PRIVATE_KEY": "${COMMERCE_AGENT_KEY}",
+            "HEDERA_PRIVATE_KEY": "${HEDERA_PRIVATE_KEY}",
+            "HEDERA_ACCOUNT_ID": "${HEDERA_ACCOUNT_ID}",
+            "OG_PRIVATE_KEY": "${OG_PRIVATE_KEY}",
+            "FRONTEND_URL": "http://localhost:3001"
+          }
+        }
+      ]
+    }
+  },
+  "channels": {}
+}
