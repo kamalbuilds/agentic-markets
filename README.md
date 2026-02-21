@@ -1,4 +1,4 @@
-# AgentMarketTokenized AI Agent Services on OG
+# AgentMarket : Tokenized AI Agent Services
 
 > **Institutional-grade infrastructure for tokenizing, discovering, and transacting AI agent services on-chain.**
 >
